@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-e71ef73d5383",
+  "base_commit": "86420b38aac19b75a83fc64b78d8828e5eb919dd",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 14847a9906d6..2c92c98db5f4 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -3823,7 +3823,9 @@ mysql_execute_command(THD *thd)\n     uint rows_affected= 1;\n     DBUG_ASSERT(lex->et);\n     do {\n-      if (! lex->et->dbname.str)\n+      if (! lex->et->dbname.str ||\n+          (lex->sql_command == SQLCOM_ALTER_EVENT && lex->spname &&\n+           !lex->spname->m_db.str))\n       {\n         my_message(ER_NO_DB_ERROR, ER(ER_NO_DB_ERROR), MYF(0));\n         res= true;\n@@ -3831,7 +3833,10 @@ mysql_execute_command(THD *thd)\n       }\n \n       if (check_access(thd, EVENT_ACL, lex->et->dbname.str, 0, 0, 0,\n-                       is_schema_db(lex->et->dbname.str)))\n+                       is_schema_db(lex->et->dbname.str)) ||\n+          (lex->sql_command == SQLCOM_ALTER_EVENT && lex->spname &&\n+           (check_access(thd, EVENT_ACL, lex->spname->m_db.str, 0, 0, 0,\n+                         is_schema_db(lex->spname->m_db.str)))))\n         break;\n \n       if (end_active_trans(thd))\n",
+  "test_patch": "diff --git a/mysql-test/r/events_bugs.result b/mysql-test/r/events_bugs.result\nindex bc89c692f9ab..a7c2964a2533 100644\n--- a/mysql-test/r/events_bugs.result\n+++ b/mysql-test/r/events_bugs.result\n@@ -178,4 +178,27 @@ drop procedure ee_16407_6_pendant;\n set global event_scheduler= 2;\n drop table events_smode_test;\n set sql_mode=@old_sql_mode;\n+set global event_scheduler=2;\n+delete from mysql.user where User like 'mysqltest_%';\n+delete from mysql.db where User like 'mysqltest_%';\n+flush privileges;\n+drop database if exists mysqltest_db1;\n+create user mysqltest_user1@localhost;\n+create database mysqltest_db1;\n+grant event on events_test.* to mysqltest_user1@localhost;\n+create event mysqltest_user1 on schedule every 10 second do select 42;\n+alter event mysqltest_user1 rename to mysqltest_db1.mysqltest_user1;\n+ERROR 42000: Access denied for user 'mysqltest_user1'@'localhost' to database 'mysqltest_db1'\n+\"Let's test now rename when there is no select DB\"\n+select database();\n+database()\n+NULL\n+alter event events_test.mysqltest_user1 rename to mysqltest_user1;\n+ERROR 3D000: No database selected\n+select event_schema, event_name, definer, event_type, status from information_schema.events;\n+event_schema\tevent_name\tdefiner\tevent_type\tstatus\n+events_test\tmysqltest_user1\tmysqltest_user1@localhost\tRECURRING\tENABLED\n+drop event events_test.mysqltest_user1;\n+drop user mysqltest_user1@localhost;\n+drop database mysqltest_db1;\n drop database events_test;\ndiff --git a/mysql-test/t/events_bugs.test b/mysql-test/t/events_bugs.test\nindex e3b79a6bd13e..12d75fede5c4 100644\n--- a/mysql-test/t/events_bugs.test\n+++ b/mysql-test/t/events_bugs.test\n@@ -172,4 +172,38 @@ set sql_mode=@old_sql_mode;\n #\n # End  - 16407: Events: Changes in sql_mode won't be taken into account  \n #\n+\n+#\n+# START - 18897: Events: unauthorized action possible with alter event rename\n+#\n+set global event_scheduler=2;\n+--disable_warnings\n+delete from mysql.user where User like 'mysqltest_%';\n+delete from mysql.db where User like 'mysqltest_%';\n+flush privileges;\n+drop database if exists mysqltest_db1;\n+--enable_warnings\n+create user mysqltest_user1@localhost;\n+create database mysqltest_db1;\n+grant event on events_test.* to mysqltest_user1@localhost;\n+connect (conn2,localhost,mysqltest_user1,,events_test);\n+create event mysqltest_user1 on schedule every 10 second do select 42;\n+--error ER_DBACCESS_DENIED_ERROR\n+alter event mysqltest_user1 rename to mysqltest_db1.mysqltest_user1;\n+--echo \"Let's test now rename when there is no select DB\"\n+disconnect conn2;\n+connect (conn2,localhost,mysqltest_user1,,*NO-ONE*);\n+select database();\n+--error ER_NO_DB_ERROR\n+alter event events_test.mysqltest_user1 rename to mysqltest_user1;\n+select event_schema, event_name, definer, event_type, status from information_schema.events;\n+drop event events_test.mysqltest_user1;\n+disconnect conn2;\n+connection default;\n+drop user mysqltest_user1@localhost;\n+drop database mysqltest_db1;\n+#\n+# END   - 18897: Events: unauthorized action possible with alter event rename\n+#\n+\n drop database events_test;\n",
+  "problem_statement": "Fix for bug #18897 \"Events: unauthorized action possible with\nalter event rename\".\n\nALTER EVENT ... RENAME statement hasn't checked privileges\nfor the target database. It also caused server crashes when\ntarget database was not specified explicitly and there was\nno current database.\n\nThis fix adds missing privilege check and check for the case\nwhen target database is not specified explicitly or implicitly.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/events_bugs.result",
+      "mysql-test/t/events_bugs.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

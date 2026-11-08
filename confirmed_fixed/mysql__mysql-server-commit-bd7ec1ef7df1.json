@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-bd7ec1ef7df1",
+  "base_commit": "d6f3cf105da6a76862396e87fe47a27802da2d62",
+  "patch": "diff --git a/sql/auth/sql_security_ctx.cc b/sql/auth/sql_security_ctx.cc\nindex cc63067d4e68..09dace2f08ae 100644\n--- a/sql/auth/sql_security_ctx.cc\n+++ b/sql/auth/sql_security_ctx.cc\n@@ -1,4 +1,4 @@\n-/* Copyright (c) 2014, 2017, Oracle and/or its affiliates. All rights reserved.\n+/* Copyright (c) 2014, 2018, Oracle and/or its affiliates. All rights reserved.\n    This program is free software; you can redistribute it and/or modify\n    it under the terms of the GNU General Public License, version 2.0,\n    as published by the Free Software Foundation.\n@@ -46,6 +46,8 @@\n #include \"sql/mysqld.h\"\n #include \"sql/sql_class.h\"\n \n+extern bool initialized;\n+\n void Security_context::init() {\n   DBUG_ENTER(\"Security_context::init\");\n \n@@ -477,6 +479,8 @@ bool Security_context::any_table_acl(const LEX_CSTRING &db) {\n \n std::pair<bool, bool> Security_context::has_global_grant(const char *priv,\n                                                          size_t priv_len) {\n+  /* server started with --skip-grant-tables */\n+  if (!initialized) return std::make_pair(true, true);\n   std::string privilege(priv, priv_len);\n   if (m_acl_map == 0) {\n     Acl_cache_lock_guard acl_cache_lock(current_thd,\n",
+  "test_patch": "diff --git a/mysql-test/r/skip_grants.result b/mysql-test/r/skip_grants.result\nindex b83a83682e7a..1dd66713f1d6 100644\n--- a/mysql-test/r/skip_grants.result\n+++ b/mysql-test/r/skip_grants.result\n@@ -73,3 +73,6 @@ select count(*) from information_schema.USER_PRIVILEGES;\n count(*)\n 0\n End of 5.0 tests\n+SET PERSIST max_connections = 18;\n+SET PERSIST_ONLY max_connections = 18;\n+SET GLOBAL max_connections = DEFAULT;\ndiff --git a/mysql-test/t/skip_grants.test b/mysql-test/t/skip_grants.test\nindex 44a5120afc90..58cd09272db4 100644\n--- a/mysql-test/t/skip_grants.test\n+++ b/mysql-test/t/skip_grants.test\n@@ -120,3 +120,12 @@ select count(*) from information_schema.SCHEMA_PRIVILEGES;\n select count(*) from information_schema.TABLE_PRIVILEGES;\n select count(*) from information_schema.USER_PRIVILEGES;\n --echo End of 5.0 tests\n+\n+#\n+# Bug #89457: SET PERSIST_ONLY ignore skip-grant-tables\n+#\n+\n+SET PERSIST max_connections = 18;\n+SET PERSIST_ONLY max_connections = 18;\n+## set to default\n+SET GLOBAL max_connections = DEFAULT;\n",
+  "problem_statement": "Bug #27455943: SET PERSIST_ONLY IGNORE SKIP-GRANT-TABLES\n\nProblem: When server is started with --skip-grant-tables SET PERSIST_ONLY does\ngo through privilege checking and fails.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/skip_grants.result",
+      "mysql-test/t/skip_grants.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

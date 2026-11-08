@@ -1,0 +1,29 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-1fbb61754b1f",
+  "base_commit": "ddec400e1819b97b106cafec74b1f09a8a8fafc0",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 3759840d3bbe..c51e5e00aa1a 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -1642,17 +1642,6 @@ static int replace_user_table(THD *thd, TABLE *table, const LEX_USER &combo,\n   }\n   else\n   {\n-    /*\n-      Check that the user isn't trying to change a password for another\n-      user if he doesn't have UPDATE privilege to the MySQL database\n-    */\n-    DBUG_ASSERT(combo.host.str != 0);\n-    if (thd->user && combo.password.str &&\n-        (strcmp(thd->user,combo.user.str) ||\n-         my_strcasecmp(system_charset_info,\n-                       combo.host.str, thd->host_or_ip)) &&\n-        check_access(thd, UPDATE_ACL, \"mysql\",0,1,0))\n-      goto end;\n     old_row_exists = 1;\n     store_record(table,record[1]);\t\t\t// Save copy for update\n     if (combo.password.str)\t\t\t// If password given\ndiff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 4b069dd56e87..898dbc05a9aa 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -3626,6 +3626,24 @@ mysql_execute_command(THD *thd)\n \t\t     first_table ? 0 : 1, 0))\n       goto error;\n \n+    if (thd->user)\t\t\t\t// If not replication\n+    {\n+      LEX_USER *user;\n+      List_iterator <LEX_USER> user_list(lex->users_list);\n+      while ((user=user_list++))\n+      {\n+\tif (user->password.str &&\n+\t    strcmp(thd->user, user->user.str) ||\n+\t    user->host.str &&\n+\t    my_strcasecmp(system_charset_info,\n+\t\t\t  user->host.str, thd->host_or_ip))\n+\t{\n+\t  if (check_access(thd, UPDATE_ACL, \"mysql\", 0, 1, 0))\n+\t    goto error;\n+\t  break;\t\t\t// We are allowed to do changes\n+\t}\n+      }\n+    }\n     if (specialflag & SPECIAL_NO_RESOLVE)\n     {\n       LEX_USER *user;\ndiff --git a/sql/sql_update.cc b/sql/sql_update.cc\nindex e215141ff0ad..3ee656b00ceb 100644\n--- a/sql/sql_update.cc\n+++ b/sql/sql_update.cc\n@@ -219,7 +219,7 @@ int mysql_update(THD *thd,\n #ifndef NO_EMBEDDED_ACCESS_CHECKS\n   /* Check values */\n   table_list->grant.want_privilege= table->grant.want_privilege=\n-    (SELECT_ACL & ~~table->grant.privilege);\n+    (SELECT_ACL & ~table->grant.privilege);\n #endif\n   if (setup_fields(thd, 0, table_list, values, 1, 0, 0))\n   {\n",
+  "test_patch": "diff --git a/mysql-test/r/grant2.result b/mysql-test/r/grant2.result\nindex 821f67536f3e..e6c78fdfdd44 100644\n--- a/mysql-test/r/grant2.result\n+++ b/mysql-test/r/grant2.result\n@@ -23,6 +23,7 @@ grant select on `my\\_1`.* to mysqltest_4@localhost with grant option;\n ERROR 42000: 'mysqltest_1'@'localhost' is not allowed to create new users\n grant select on `my\\_1`.* to mysqltest_4@localhost identified by 'mypass'\n with grant option;\n+ERROR 42000: Access denied for user 'mysqltest_1'@'localhost' to database 'mysql'\n show grants for mysqltest_1@localhost;\n Grants for mysqltest_1@localhost\n GRANT USAGE ON *.* TO 'mysqltest_1'@'localhost'\ndiff --git a/mysql-test/t/grant2.test b/mysql-test/t/grant2.test\nindex 3b1200f8a6e1..58f91fddcc2d 100644\n--- a/mysql-test/t/grant2.test\n+++ b/mysql-test/t/grant2.test\n@@ -36,6 +36,7 @@ set @@sql_mode='NO_AUTO_CREATE_USER';\n select @@sql_mode;\n --error 1211\n grant select on `my\\_1`.* to mysqltest_4@localhost with grant option;\n+--error 1044\n grant select on `my\\_1`.* to mysqltest_4@localhost identified by 'mypass'\n with grant option;\n disconnect user1;\ndiff --git a/tests/grant.pl b/tests/grant.pl\nindex cd6a2eb80deb..4f2bd1a61cb4 100644\n--- a/tests/grant.pl\n+++ b/tests/grant.pl\n@@ -201,7 +201,7 @@\n safe_query(\"grant CREATE,UPDATE,DROP on $opt_database.* to $user\");\n user_connect(0);\n user_query(\"create table $opt_database.test2 (a int not null)\");\n-user_query(\"update test,test2 SET test.a=1 where 1\");\n+user_query(\"update test,test2 SET test.a=1 where 1\",1);\n user_query(\"update test,test2 SET test.a=test2.a where 1\",1);\n safe_query(\"grant SELECT on $opt_database.* to $user\");\n user_connect(0);\n@@ -375,7 +375,7 @@\n user_query(\"delete from $opt_database.test where A=2\");\n user_query(\"update test set b=5 where b>0\");\n user_query(\"update test set a=11 where b>5\",1);\n-user_query(\"update test,test2 SET test.b=5 where b>0\");\n+user_query(\"update test,test2 SET test.b=5 where b>0\",1);\n user_query(\"update test,test2 SET test.a=11 where b>0\",1);\n user_query(\"update test,test2 SET test.b=test2.a where b>0\",1);\n user_query(\"update test,test2 SET test.b=11 where test2.a>0\",1);\n",
+  "problem_statement": "Fixed two bugs in MySQL ACL.\nFirst one is related to Bug#7905. One should not be allowed to\ncreate new user with password without UPDATE privilege to\nMySQL database. Furthermore, executing the same GRANT statement\ntwice would actually crash the server and corrupt privilege database.\n\nOther bug was that one could update a column, using the existing\nvalue as basis to calculate the new value (e.g. UPDATE t1 SET a=a+1)\nwithout SELECT privilege to the field (a in the above example)\n\nFixed tests grant.pl and grant2, which were wrong.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant2.result",
+      "mysql-test/t/grant2.test",
+      "tests/grant.pl"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

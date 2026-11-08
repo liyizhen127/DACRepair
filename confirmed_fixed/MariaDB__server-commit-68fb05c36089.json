@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-68fb05c36089",
+  "base_commit": "7a2f99564932ff51e7008da1f6e1553467e469a1",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 5a2865e535e17..059a6ed412794 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -7152,7 +7152,10 @@ bool mysql_grant_role(THD *thd, List <LEX_USER> &list, bool revoke)\n        a role\n     */\n     if (role_as_user)\n+    {\n       propagate_role_grants(role_as_user, PRIVS_TO_MERGE::ALL);\n+      acl_cache->clear(1);\n+    }\n   }\n \n   mysql_mutex_unlock(&acl_cache->lock);\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/role_grant_propagate.result b/mysql-test/suite/roles/role_grant_propagate.result\nindex 5f6288b08c074..7804b7b7a3c0c 100644\n--- a/mysql-test/suite/roles/role_grant_propagate.result\n+++ b/mysql-test/suite/roles/role_grant_propagate.result\n@@ -138,5 +138,30 @@ drop role test_role1, test_role2;\n create role test_role1;\n drop role test_role1;\n #\n+# MDEV-29851 Cached role privileges are not invalidated when needed\n+#\n+create role admin;\n+create role student;\n+create database crm;\n+grant create on crm.* to admin;\n+grant select on crm.* to student;\n+create user intern@localhost;\n+grant student to intern@localhost;\n+set default role student for intern@localhost;\n+connect con1, localhost, intern;\n+use crm;\n+disconnect con1;\n+connection default;\n+grant admin to student;\n+connect con1, localhost, intern;\n+use crm;\n+create table t1 (a int);\n+disconnect con1;\n+connection default;\n+drop user intern@localhost;\n+drop role student;\n+drop role admin;\n+drop database crm;\n+#\n # End of 10.3 tests\n #\ndiff --git a/mysql-test/suite/roles/role_grant_propagate.test b/mysql-test/suite/roles/role_grant_propagate.test\nindex b909b71a5bbb4..bf20bc008097c 100644\n--- a/mysql-test/suite/roles/role_grant_propagate.test\n+++ b/mysql-test/suite/roles/role_grant_propagate.test\n@@ -166,6 +166,36 @@ drop role test_role1, test_role2;\n create role test_role1;\n drop role test_role1;\n \n+--echo #\n+--echo # MDEV-29851 Cached role privileges are not invalidated when needed\n+--echo #\n+create role admin;\n+create role student;\n+create database crm;\n+grant create on crm.* to admin;\n+grant select on crm.* to student;\n+create user intern@localhost;\n+grant student to intern@localhost;\n+set default role student for intern@localhost;\n+\n+connect con1, localhost, intern;\n+use crm;\n+disconnect con1;\n+\n+connection default;\n+grant admin to student;\n+\n+connect con1, localhost, intern;\n+use crm;\n+create table t1 (a int);\n+disconnect con1;\n+\n+connection default;\n+drop user intern@localhost;\n+drop role student;\n+drop role admin;\n+drop database crm;\n+\n --echo #\n --echo # End of 10.3 tests\n --echo #\n",
+  "problem_statement": "Cached role privileges are not invalidated when needed\n\nThere appears to be an inconsistency of when privileges of a role are applied indirectly via another role and when the user connects to the server.\r\n\r\nFor instance - role1->user, role2->role1; user connects and has role2 privileges:\r\n{code:sql}\r\ncreate role admin;\r\ncreate role student;\r\ncreate database crm;\r\ngrant create on crm.* to admin;\r\ngrant select on crm.* to student;\r\ncreate user intern@localhost;\r\ngrant student to intern@localhost;\r\nset default role student for intern@localhost;\r\ngrant admin to student;\r\n\r\nconnect (con1, localhost, intern,,);\r\nuse crm;\r\ncreate table t1 (a int);\r\ndisconnect con1;\r\n\r\n# cleanup\r\nconnection default;\r\ndrop user intern@localhost;\r\ndrop role student;\r\ndrop role admin;\r\ndrop database crm;\r\nflush privileges;\r\n{code}\r\n\r\nHowever - role1->user; user connects; role2->role1; user connects but does not have role2 privileges. FLUSH PRIVILEGES is needed before user has role2 capabilities:\r\n{code:sql}\r\ncreate role admin;\r\ncreate role student;\r\ncreate database crm;\r\ngrant create on crm.* to admin;\r\ngrant select on crm.* to student;\r\ncreate user intern@localhost;\r\ngrant student to intern@localhost;\r\nset default role student for intern@localhost;\r\n\r\nconnect (con1, localhost, intern,,);\r\nuse crm;\r\ndisconnect con1;\r\n\r\nconnection default;\r\ngrant admin to student;\r\n\r\nconnect (con1, localhost, intern,,);\r\nuse crm;\r\n--error ER_TABLEACCESS_DENIED_ERROR\r\ncreate table t1 (a int);\r\ndisconnect con1;\r\n\r\nconnection default;\r\nflush privileges;\r\n\r\nconnect (con1, localhost, intern,,);\r\nuse crm;\r\ncreate table t1 (a int);\r\ndisconnect con1;\r\n\r\n# cleanup\r\nconnection default;\r\ndrop user intern@localhost;\r\ndrop role student;\r\ndrop role admin;\r\ndrop database crm;\r\nflush privileges;\r\n{code}\r\n\r\nWhy this is the case is not clear to me.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/role_grant_propagate.result",
+      "mysql-test/suite/roles/role_grant_propagate.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

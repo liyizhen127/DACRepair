@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-8376",
+  "base_commit": "c16a22ac01a498f2cc100c880908ada21de3638b",
+  "patch": "diff --git a/planner/core/logical_plan_builder.go b/planner/core/logical_plan_builder.go\nindex 88dbd0c7f21cf..3448c62786ec2 100644\n--- a/planner/core/logical_plan_builder.go\n+++ b/planner/core/logical_plan_builder.go\n@@ -2096,7 +2096,7 @@ func (b *PlanBuilder) buildUpdate(update *ast.UpdateStmt) (Plan, error) {\n \t\tif dbName == \"\" {\n \t\t\tdbName = b.ctx.GetSessionVars().CurrentDB\n \t\t}\n-\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.UpdatePriv, dbName, t.Name.L, \"\")\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, dbName, t.Name.L, \"\")\n \t}\n \n \tif sel.Where != nil {\n@@ -2208,6 +2208,10 @@ func (b *PlanBuilder) buildUpdateLists(tableList []*ast.TableName, list []*ast.A\n \t\tp = np\n \t\tnewList = append(newList, &expression.Assignment{Col: col, Expr: newExpr})\n \t}\n+\tfor _, assign := range newList {\n+\t\tcol := assign.Col\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.UpdatePriv, col.DBName.L, col.TblName.L, \"\")\n+\t}\n \treturn newList, p, nil\n }\n \n",
+  "test_patch": "diff --git a/session/session_test.go b/session/session_test.go\nindex b8e46644cee9e..dcf734d7be818 100644\n--- a/session/session_test.go\n+++ b/session/session_test.go\n@@ -15,6 +15,7 @@ package session_test\n \n import (\n \t\"fmt\"\n+\t\"strings\"\n \t\"sync\"\n \t\"sync/atomic\"\n \t\"time\"\n@@ -2226,3 +2227,30 @@ func (s *testSessionSuite) TestSetGroupConcatMaxLen(c *C) {\n \t_, err = tk.Exec(\"set @@group_concat_max_len='hello'\")\n \tc.Assert(terror.ErrorEqual(err, variable.ErrWrongTypeForVar), IsTrue, Commentf(\"err %v\", err))\n }\n+\n+func (s *testSessionSuite) TestUpdatePrivilege(c *C) {\n+\ttk := testkit.NewTestKitWithInit(c, s.store)\n+\ttk.MustExec(\"drop table if exists t1, t2;\")\n+\ttk.MustExec(\"create table t1 (id int);\")\n+\ttk.MustExec(\"create table t2 (id int);\")\n+\ttk.MustExec(\"insert into t1 values (1);\")\n+\ttk.MustExec(\"insert into t2 values (2);\")\n+\ttk.MustExec(\"create user xxx;\")\n+\ttk.MustExec(\"grant all on test.t1 to xxx;\")\n+\ttk.MustExec(\"grant select on test.t2 to xxx;\")\n+\ttk.MustExec(\"flush privileges;\")\n+\n+\ttk1 := testkit.NewTestKitWithInit(c, s.store)\n+\tc.Assert(tk1.Se.Auth(&auth.UserIdentity{Username: \"xxx\", Hostname: \"localhost\"},\n+\t\t[]byte(\"\"),\n+\t\t[]byte(\"\")), IsTrue)\n+\n+\t_, err := tk1.Exec(\"update t2 set id = 666 where id = 1;\")\n+\tc.Assert(err, NotNil)\n+\tc.Assert(strings.Contains(err.Error(), \"privilege check fail\"), IsTrue)\n+\n+\t// Cover a bug that t1 and t2 both require update privilege.\n+\t// In fact, the privlege check for t1 should be update, and for t2 should be select.\n+\t_, err = tk1.Exec(\"update t1,t2 set t1.id = t2.id;\")\n+\tc.Assert(err, IsNil)\n+}\n",
+  "problem_statement": "planner/core,session: fix privilege check for update\n\nIn the statement: \"update t1,t2 set t1.id = t2.id\"\r\nTiDB should check update privilege for t1 and select privilege for t2,\r\nFix a bug that it checks update privilege for both t1 and t2\r\n\r\n### What is changed and how it works?\r\n\r\nCheck update privilege for the Columns in the Assignment expression\r\nCheck select privilege for the table lists the update statement visit",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "session/session_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

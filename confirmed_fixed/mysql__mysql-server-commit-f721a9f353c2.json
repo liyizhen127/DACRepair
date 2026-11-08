@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-f721a9f353c2",
+  "base_commit": "3e7f875a8e3068c8d5b55f6ca566629f3e302a54",
+  "patch": "diff --git a/sql/sql_show.cc b/sql/sql_show.cc\nindex 86fbbc31e746..ef22d83b87f9 100644\n--- a/sql/sql_show.cc\n+++ b/sql/sql_show.cc\n@@ -1263,7 +1263,8 @@ bool mysqld_show_create_db(THD *thd, char *dbname,\n     db_access = DB_OP_ACLS;\n   else {\n     if (sctx->get_active_roles()->size() > 0 && dbname != nullptr) {\n-      db_access = sctx->db_acl({dbname, strlen(dbname)});\n+      db_access = (sctx->db_acl({dbname, strlen(dbname)}) |\n+                   sctx->master_access(dbname ? dbname : \"\"));\n     } else {\n       db_access = (acl_get(thd, sctx->host().str, sctx->ip().str,\n                            sctx->priv_user().str, dbname, false) |\n",
+  "test_patch": "diff --git a/mysql-test/r/roles_bugs.result b/mysql-test/r/roles_bugs.result\nindex 179ccbaf144e..480344a51912 100644\n--- a/mysql-test/r/roles_bugs.result\n+++ b/mysql-test/r/roles_bugs.result\n@@ -201,6 +201,30 @@ GRANT r3 TO r4;\n ERROR HY000: User account `r4`@`%` is directly or indirectly granted to the role `r3`@`%`. The GRANT would create a loop\n SET GLOBAL mandatory_roles = @save_mandatory_roles;\n DROP ROLE r1,r2,r3,r4;\n+#\n+# Bug #33159353: SHOW CREATE DATABASE fails with a role that has global\n+#                level privilege\n+#\n+CREATE ROLE test_role;\n+GRANT SELECT ON *.* TO test_role;\n+CREATE USER test_user DEFAULT ROLE test_role;\n+# connect with test_user\n+SELECT current_role(), current_user();\n+current_role()\tcurrent_user()\n+`test_role`@`%`\ttest_user@%\n+SHOW GRANTS FOR test_role;\n+Grants for test_role@%\n+GRANT SELECT ON *.* TO `test_role`@`%`\n+SHOW GRANTS FOR test_user;\n+Grants for test_user@%\n+GRANT USAGE ON *.* TO `test_user`@`%`\n+GRANT `test_role`@`%` TO `test_user`@`%`\n+SHOW CREATE DATABASE mysql;\n+Database\tCreate Database\n+mysql\tCREATE DATABASE `mysql` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */\n+# Cleanup\n+DROP ROLE test_role;\n+DROP USER test_user;\n \n # End of 8.0 tests\n \ndiff --git a/mysql-test/t/roles_bugs.test b/mysql-test/t/roles_bugs.test\nindex 8c9f5461af42..5e0c79eeb935 100644\n--- a/mysql-test/t/roles_bugs.test\n+++ b/mysql-test/t/roles_bugs.test\n@@ -230,6 +230,26 @@ SET GLOBAL mandatory_roles = @save_mandatory_roles;\n DROP ROLE r1,r2,r3,r4;\n \n \n+--echo #\n+--echo # Bug #33159353: SHOW CREATE DATABASE fails with a role that has global\n+--echo #                level privilege\n+--echo #\n+CREATE ROLE test_role;\n+GRANT SELECT ON *.* TO test_role;\n+CREATE USER test_user DEFAULT ROLE test_role;\n+\n+--echo # connect with test_user\n+connect(con1,localhost,test_user,,);\n+SELECT current_role(), current_user();\n+SHOW GRANTS FOR test_role;\n+SHOW GRANTS FOR test_user;\n+SHOW CREATE DATABASE mysql;\n+--echo # Cleanup\n+connection default;\n+DROP ROLE test_role;\n+DROP USER test_user;\n+disconnect con1;\n+\n --echo\n --echo # End of 8.0 tests\n --echo\n",
+  "problem_statement": "Bug #33159353: SHOW CREATE DATABASE fails with a role that has global level\n               privilege\n\nProblem: A connected user which has an active role with a global level SELECT\nprivilege is denied access to mysql database.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/roles_bugs.result",
+      "mysql-test/t/roles_bugs.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

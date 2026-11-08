@@ -1,0 +1,29 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-91223c4d2561",
+  "base_commit": "64de23433df11f8e4a52db88023b9f2498b9a07a",
+  "patch": "diff --git a/sql/sql_plugin.cc b/sql/sql_plugin.cc\nindex 9e35e392d2a6..0706ef248813 100644\n--- a/sql/sql_plugin.cc\n+++ b/sql/sql_plugin.cc\n@@ -1736,6 +1736,8 @@ bool mysql_uninstall_plugin(THD *thd, const LEX_STRING *name)\n   bzero(&tables, sizeof(tables));\n   tables.db= (char *)\"mysql\";\n   tables.table_name= tables.alias= (char *)\"plugin\";\n+  if (check_table_access(thd, DELETE_ACL, &tables, 1, FALSE))\n+    DBUG_RETURN(TRUE);\n \n   /* need to open before acquiring LOCK_plugin or it will deadlock */\n   if (! (table= open_ltable(thd, &tables, TL_WRITE, 0)))\n",
+  "test_patch": "diff --git a/mysql-test/r/plugin_not_embedded.result b/mysql-test/r/plugin_not_embedded.result\nnew file mode 100644\nindex 000000000000..ca6b1e5b1f45\n--- /dev/null\n+++ b/mysql-test/r/plugin_not_embedded.result\n@@ -0,0 +1,11 @@\n+#\n+# Bug#51770: UNINSTALL PLUGIN requires no privileges\n+#\n+GRANT INSERT ON mysql.plugin TO bug51770@localhost;\n+INSTALL PLUGIN example SONAME 'ha_example.so';\n+UNINSTALL PLUGIN example;\n+ERROR 42000: DELETE command denied to user 'bug51770'@'localhost' for table 'plugin'\n+GRANT DELETE ON mysql.plugin TO bug51770@localhost;\n+FLUSH PRIVILEGES;\n+UNINSTALL PLUGIN example;\n+DROP USER bug51770@localhost;\ndiff --git a/mysql-test/t/plugin_not_embedded-master.opt b/mysql-test/t/plugin_not_embedded-master.opt\nnew file mode 100644\nindex 000000000000..367d5233e0ee\n--- /dev/null\n+++ b/mysql-test/t/plugin_not_embedded-master.opt\n@@ -0,0 +1 @@\n+$EXAMPLE_PLUGIN_OPT\ndiff --git a/mysql-test/t/plugin_not_embedded.test b/mysql-test/t/plugin_not_embedded.test\nnew file mode 100644\nindex 000000000000..eea7deab40c9\n--- /dev/null\n+++ b/mysql-test/t/plugin_not_embedded.test\n@@ -0,0 +1,20 @@\n+--source include/not_embedded.inc\n+--source include/have_example_plugin.inc\n+\n+--echo #\n+--echo # Bug#51770: UNINSTALL PLUGIN requires no privileges\n+--echo #\n+\n+GRANT INSERT ON mysql.plugin TO bug51770@localhost;\n+connect(con1,localhost,bug51770,,);\n+eval INSTALL PLUGIN example SONAME $HA_EXAMPLE_SO;\n+--error ER_TABLEACCESS_DENIED_ERROR\n+UNINSTALL PLUGIN example;\n+connection default;\n+GRANT DELETE ON mysql.plugin TO bug51770@localhost;\n+FLUSH PRIVILEGES;\n+connection con1;\n+UNINSTALL PLUGIN example;\n+disconnect con1;\n+connection default;\n+DROP USER bug51770@localhost;\n",
+  "problem_statement": "Bug#51770: UNINSTALL PLUGIN requires no privileges\n\nThe problem was that UNINSTALL PLUGIN wasn't performing privilege\nchecks before removing a plugin. Any user (including users without \nany kind of privileges) could uninstall any plugin.\n\nThe solution is to verify if the user has the DELETE privilege for\nthe mysql.plugin table before uninstalling a plugin.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/plugin_not_embedded.result",
+      "mysql-test/t/plugin_not_embedded-master.opt",
+      "mysql-test/t/plugin_not_embedded.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-047eb2258dfc",
+  "base_commit": "abdc39b0a72f2912e5c4d2e8e0212370d5fdf1c3",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex eae8f22a88151..dcd55a8860c75 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -8150,16 +8150,9 @@ bool check_grant(THD *thd, privilege_t want_access, TABLE_LIST *tables,\n     if (!want_access)\n       continue;                                 // ok\n \n-    if (t_ref->table_function)\n-    {\n-      /* Table function doesn't need any privileges to be checked.  */\n-      t_ref->grant.privilege|= TMP_TABLE_ACLS;\n-      t_ref->grant.want_privilege= NO_ACL;\n-      continue;\n-    }\n-\n     if (!(~t_ref->grant.privilege & want_access) ||\n-        t_ref->is_anonymous_derived_table() || t_ref->schema_table)\n+        t_ref->is_anonymous_derived_table() || t_ref->schema_table ||\n+        t_ref->table_function)\n     {\n       /*\n         It is subquery in the FROM clause. VIEW set t_ref->derived after\n@@ -8168,7 +8161,8 @@ bool check_grant(THD *thd, privilege_t want_access, TABLE_LIST *tables,\n         NOTE: is_derived() can't be used here because subquery in this case\n         the FROM clase (derived tables) can be not be marked yet.\n       */\n-      if (t_ref->is_anonymous_derived_table() || t_ref->schema_table)\n+      if (t_ref->is_anonymous_derived_table() || t_ref->schema_table ||\n+          t_ref->table_function)\n       {\n         /*\n           If it's a temporary table created for a subquery in the FROM\ndiff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 237944be44d77..4c331c0573529 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -7104,9 +7104,6 @@ check_table_access(THD *thd, privilege_t requirements, TABLE_LIST *tables,\n     if (table_ref->is_anonymous_derived_table())\n       continue;\n \n-    if (table_ref->table_function)\n-      continue;\n-\n     if (table_ref->sequence)\n     {\n       /* We want to have either SELECT or INSERT rights to sequences depending\n@@ -7116,7 +7113,9 @@ check_table_access(THD *thd, privilege_t requirements, TABLE_LIST *tables,\n                     INSERT_ACL : SELECT_ACL);\n     }\n \n-    if (check_access(thd, want_access, table_ref->get_db_name(),\n+    if (check_access(thd, want_access,\n+                     table_ref->table_function ? any_db :\n+                                                 table_ref->get_db_name(),\n                      &table_ref->grant.privilege,\n                      &table_ref->grant.m_internal,\n                      0, no_errors))\n",
+  "test_patch": "diff --git a/mysql-test/suite/json/r/json_table.result b/mysql-test/suite/json/r/json_table.result\nindex 29157ac6be2be..3987b8b8e10b6 100644\n--- a/mysql-test/suite/json/r/json_table.result\n+++ b/mysql-test/suite/json/r/json_table.result\n@@ -111,6 +111,8 @@ a\n select * from t, json_table(t.a, '$' columns(f varchar(20) path '$.foo')) as jt;\n a\tf\n {\"foo\":\"bar\"}\tbar\n+select * into outfile 'f' from json_table('[]', '$' columns(x for ordinality)) q;\n+ERROR 28000: Access denied for user 'u'@'localhost' (using password: NO)\n connection default;\n disconnect con1;\n drop user u@localhost;\ndiff --git a/mysql-test/suite/json/t/json_table.test b/mysql-test/suite/json/t/json_table.test\nindex c09f330188938..9cfdfe642c358 100644\n--- a/mysql-test/suite/json/t/json_table.test\n+++ b/mysql-test/suite/json/t/json_table.test\n@@ -74,6 +74,12 @@ grant select (a) on db.t to u@localhost;\n select a from t;\n select * from t, json_table(t.a, '$' columns(f varchar(20) path '$.foo')) as jt;\n \n+#\n+# MDEV-25141 JSON_TABLE: SELECT into outfile bypasses file privilege check\n+#\n+--error ER_ACCESS_DENIED_ERROR\n+select * into outfile 'f' from json_table('[]', '$' columns(x for ordinality)) q;\n+\n connection default;\n disconnect con1;\n \n",
+  "problem_statement": "JSON_TABLE: SELECT into outfile bypasses file privilege check\n\n{{SELECT}} from {{JSON_TABLE}} into an outfile doesn't check for {{FILE}} privilege.\r\n\r\n{code:sql|title=bb-10.6-mdev17399-psergey2 8b533cc1d5}\r\n+-----------------------------------------+\r\n| Grants for foo@localhost                |\r\n+-----------------------------------------+\r\n| GRANT USAGE ON *.* TO `foo`@`localhost` |\r\n+-----------------------------------------+\r\n1 row in set (0.000 sec)\r\n\r\nMariaDB [test]> select 1 into outfile 'f';\r\nERROR 1045 (28000): Access denied for user 'foo'@'localhost' (using password: NO)\r\n\r\nMariaDB [test]> select * into outfile 'f' from json_table('[]', '$' columns(x for ordinality)) q;\r\nQuery OK, 1 row affected (0.001 sec)\r\n{code}\r\n\r\n{code:sql|title=MTR version}\r\ncreate user foo@localhost;\r\n--connect (con1,localhost,foo,,)\r\n--error ER_ACCESS_DENIED_ERROR,ER_SPECIFIC_ACCESS_DENIED_ERROR\r\nselect 1 into outfile 'f';\r\n--error ER_ACCESS_DENIED_ERROR,ER_SPECIFIC_ACCESS_DENIED_ERROR\r\nselect * from json_table('[]', '$' columns(x for ordinality)) q into outfile 'f';\r\n\r\n# Cleanup\r\n--disconnect con1\r\n--connection default\r\nDROP USER foo@localhost;\r\n{code}\r\n\r\nWorks as expected in MySQL (SELECT is prohibited).",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/json/r/json_table.result",
+      "mysql-test/suite/json/t/json_table.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

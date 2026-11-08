@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-b449612907bd",
+  "base_commit": "5fd80875909c88e624a79a528eaaf9418089a211",
+  "patch": "diff --git a/sql/log_event.cc b/sql/log_event.cc\nindex 82cd82b5e7ac8..4a1d13a8004fb 100644\n--- a/sql/log_event.cc\n+++ b/sql/log_event.cc\n@@ -3631,10 +3631,25 @@ Query_log_event::Query_log_event(const char* buf, uint event_len,\n   if (time_zone_len)\n     copy_str_and_move(&time_zone_str, &start, time_zone_len);\n \n-  if (user.length > 0)\n+  if (user.length)\n+  {\n     copy_str_and_move((const char **)&(user.str), &start, user.length);\n-  if (host.length > 0)\n+  }\n+  else\n+  {\n+    user.str= (char *) start++;\n+    user.str[0]= '\\0';\n+  }\n+\n+  if (host.length)\n+  {\n     copy_str_and_move((const char **)&(host.str), &start, host.length);\n+  }\n+  else\n+  {\n+    host.str= (char *) start++;\n+    host.str[0]= '\\0';\n+  }\n \n   /**\n     if time_zone_len or catalog_len are 0, then time_zone and catalog\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.result b/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.result\nnew file mode 100644\nindex 0000000000000..67af4a068d67d\n--- /dev/null\n+++ b/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.result\n@@ -0,0 +1,21 @@\n+include/master-slave.inc\n+[connection master]\n+create role r1;\n+set role r1;\n+grant select on db.* to current_role;\n+revoke all privileges, grant option from current_role;\n+drop role r1;\n+include/rpl_end.inc\n+connection server_2;\n+connection server_2;\n+connection server_2;\n+connection server_2;\n+connection server_1;\n+connection server_1;\n+connection server_1;\n+connection server_2;\n+connection server_1;\n+connection server_2;\n+connection server_2;\n+connection server_1;\n+connection server_1;\ndiff --git a/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.test b/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.test\nnew file mode 100644\nindex 0000000000000..6a6c4f2a7568b\n--- /dev/null\n+++ b/mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.test\n@@ -0,0 +1,12 @@\n+--source include/master-slave.inc\n+--source include/have_binlog_format_mixed.inc\n+\n+--enable_connect_log\n+\n+create role r1;\n+set role r1;\n+grant select on db.* to current_role;\n+revoke all privileges, grant option from current_role;\n+drop role r1;\n+\n+--source include/rpl_end.inc\n",
+  "problem_statement": "REVOKE ALL PRIVILEGES, GRANT OPTION FROM CURRENT_ROLE breaks replication\n\nReplication has some magic that (normally) allows to work correctly with such functions as {{CURRENT_USER}} and {{CURRENT_ROLE}} (see MDEV-8628, MDEV-8631). However, for {{REVOKE ALL PRIVILEGES, GRANT OPTION FROM CURRENT_ROLE}} this magic fails.\n\n{noformat:title=Test case}\n--source include/master-slave.inc\n--source include/have_binlog_format_mixed.inc\n\n--enable_connect_log\n\ncreate role r1;\nset role r1;\ngrant select on db.* to current_role;\nrevoke all privileges, grant option from current_role;\n\n--sync_slave_with_master\n{noformat}\n\n{noformat}\nLast_SQL_Errno\t1269\nLast_SQL_Error\tError 'Can't revoke all privileges for one or more of the requested users' on query. Default database: 'test'. Query: 'revoke all privileges, grant option from current_role'\n{noformat}",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.result",
+      "mysql-test/suite/roles/rpl_grant_revoke_current_role-8638.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

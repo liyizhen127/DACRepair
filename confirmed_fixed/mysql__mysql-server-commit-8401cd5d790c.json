@@ -1,0 +1,29 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-8401cd5d790c",
+  "base_commit": "be4920cd813fdb5ce92897bfb710b43eaf189cac",
+  "patch": "diff --git a/sql/mysql_priv.h b/sql/mysql_priv.h\nindex 25490b04ab30..7e6a611de2f5 100644\n--- a/sql/mysql_priv.h\n+++ b/sql/mysql_priv.h\n@@ -1095,7 +1095,7 @@ extern my_bool opt_slave_compressed_protocol, use_temp_pool;\n extern my_bool opt_readonly, lower_case_file_system;\n extern my_bool opt_enable_named_pipe, opt_sync_frm, opt_allow_suspicious_udfs;\n extern my_bool opt_secure_auth;\n-extern my_bool sp_automatic_privileges;\n+extern my_bool sp_automatic_privileges, opt_noacl;\n extern my_bool opt_old_style_user_limits, trust_routine_creators;\n extern uint opt_crash_binlog_innodb;\n extern char *shared_memory_base_name, *mysqld_unix_port;\ndiff --git a/sql/mysqld.cc b/sql/mysqld.cc\nindex 84a041167f1d..39b6931ffbac 100644\n--- a/sql/mysqld.cc\n+++ b/sql/mysqld.cc\n@@ -310,6 +310,7 @@ my_bool opt_old_style_user_limits= 0, trust_routine_creators= 0;\n   changed). False otherwise.\n */\n volatile bool mqh_used = 0;\n+my_bool opt_noacl;\n my_bool sp_automatic_privileges= 1;\n \n #ifdef HAVE_INITGROUPS\n@@ -445,7 +446,7 @@ char *master_ssl_ca, *master_ssl_capath, *master_ssl_cipher;\n /* Static variables */\n \n static bool kill_in_progress, segfaulted;\n-static my_bool opt_do_pstack, opt_noacl, opt_bootstrap, opt_myisam_log;\n+static my_bool opt_do_pstack, opt_bootstrap, opt_myisam_log;\n static int cleanup_done;\n static ulong opt_specialflag, opt_myisam_block_size;\n static char *opt_logname, *opt_update_logname, *opt_binlog_index_name;\ndiff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 47ac8d3afc11..4751e8b6aa76 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -3982,7 +3982,7 @@ mysql_execute_command(THD *thd)\n       lex->sphead= 0;\n #ifndef NO_EMBEDDED_ACCESS_CHECKS\n       /* only add privileges if really neccessary */\n-      if (sp_automatic_privileges &&\n+      if (sp_automatic_privileges && !opt_noacl &&\n           check_procedure_access(thd, DEFAULT_CREATE_PROC_ACLS,\n       \t\t\t\t db, name, 1))\n       {\n@@ -4247,7 +4247,7 @@ mysql_execute_command(THD *thd)\n \tif (check_procedure_access(thd, ALTER_PROC_ACL, db, name, 0))\n           goto error;\n #ifndef NO_EMBEDDED_ACCESS_CHECKS\n-\tif (sp_automatic_privileges &&\n+\tif (sp_automatic_privileges && !opt_noacl &&\n \t    sp_revoke_privileges(thd, db, name))\n \t{\n \t  push_warning(thd, MYSQL_ERROR::WARN_LEVEL_WARN, \n",
+  "test_patch": "diff --git a/mysql-test/r/view_skip_grants.result b/mysql-test/r/skip_grants.result\nsimilarity index 61%\nrename from mysql-test/r/view_skip_grants.result\nrename to mysql-test/r/skip_grants.result\nindex 48cb9f2aa25c..c0c20eb25bea 100644\n--- a/mysql-test/r/view_skip_grants.result\n+++ b/mysql-test/r/skip_grants.result\n@@ -1,6 +1,10 @@\n drop table if exists t1,v1;\n drop view if exists t1,v1;\n+drop procedure if exists f1;\n use test;\n create table t1 (field1 INT);\n CREATE VIEW v1 AS SELECT field1 FROM t1;\n drop view v1;\n+drop table t1;\n+create procedure f1() select 1;\n+drop procedure f1;\ndiff --git a/mysql-test/t/view_skip_grants-master.opt b/mysql-test/t/skip_grants-master.opt\nsimilarity index 100%\nrename from mysql-test/t/view_skip_grants-master.opt\nrename to mysql-test/t/skip_grants-master.opt\ndiff --git a/mysql-test/t/view_skip_grants.test b/mysql-test/t/skip_grants.test\nsimilarity index 59%\nrename from mysql-test/t/view_skip_grants.test\nrename to mysql-test/t/skip_grants.test\nindex bfbaec44eb15..99223fa47563 100644\n--- a/mysql-test/t/view_skip_grants.test\n+++ b/mysql-test/t/skip_grants.test\n@@ -1,6 +1,7 @@\n --disable_warnings\n drop table if exists t1,v1;\n drop view if exists t1,v1;\n+drop procedure if exists f1;\n --enable_warnings\n use test;\n \n@@ -11,4 +12,11 @@ create table t1 (field1 INT);\n CREATE VIEW v1 AS SELECT field1 FROM t1;\n \n drop view v1;\n-drop table t1\n+drop table t1;\n+\n+#\n+# Test that we can create and drop procedure without warnings\n+# see bug#9993\n+#\n+create procedure f1() select 1;\n+drop procedure f1;\n",
+  "problem_statement": "BUG#9993 2 unexpected warnings when dropping a routine and --skip-grant-tables\n - Dont perform automatic privilege handling for stored procedures when server is started --skip-grant-tables\n - Renamed view_skip_grants to skip_grants and added test cases for this",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/skip_grants.result",
+      "mysql-test/t/skip_grants-master.opt",
+      "mysql-test/t/skip_grants.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-14862",
+  "base_commit": "880a9b03747456bc3a384a9fbcd0553d45bd352d",
+  "patch": "diff --git a/privilege/privileges/cache.go b/privilege/privileges/cache.go\nindex 288e122326010..f1110edfc5490 100644\n--- a/privilege/privileges/cache.go\n+++ b/privilege/privileges/cache.go\n@@ -44,7 +44,7 @@ var (\n \ttablePrivMask          = computePrivMask(mysql.AllTablePrivs)\n )\n \n-const globalDBVisible = mysql.CreatePriv | mysql.SelectPriv | mysql.InsertPriv | mysql.UpdatePriv | mysql.DeletePriv | mysql.ShowDBPriv | mysql.DropPriv | mysql.AlterPriv | mysql.IndexPriv | mysql.CreateViewPriv | mysql.ShowViewPriv | mysql.GrantPriv\n+const globalDBVisible = mysql.CreatePriv | mysql.SelectPriv | mysql.InsertPriv | mysql.UpdatePriv | mysql.DeletePriv | mysql.ShowDBPriv | mysql.DropPriv | mysql.AlterPriv | mysql.IndexPriv | mysql.CreateViewPriv | mysql.ShowViewPriv | mysql.GrantPriv | mysql.TriggerPriv | mysql.ReferencesPriv | mysql.ExecutePriv\n \n func computePrivMask(privs []mysql.PrivilegeType) mysql.PrivilegeType {\n \tvar mask mysql.PrivilegeType\n",
+  "test_patch": "diff --git a/privilege/privileges/cache_test.go b/privilege/privileges/cache_test.go\nindex 09fbe2aaa9f25..bbc8a1462448b 100644\n--- a/privilege/privileges/cache_test.go\n+++ b/privilege/privileges/cache_test.go\n@@ -553,4 +553,25 @@ func (s *testCacheSuite) TestDBIsVisible(c *C) {\n \tisVisible = p.DBIsVisible(\"testvisdb6\", \"%\", \"visdb\")\n \tc.Assert(isVisible, IsTrue)\n \tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Trigger_priv) VALUES (\"%\", \"testvisdb7\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb7\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, References_priv) VALUES (\"%\", \"testvisdb8\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb8\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Execute_priv) VALUES (\"%\", \"testvisdb9\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb9\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n }\n",
+  "problem_statement": "privilege: fix compatibility of DBIsVisible\n\nUser with `trigger/references/execute` global privileges can not see all database names and use them, but in MySQL is okay.\r\n\r\nin TiDB:\r\n```\r\nmysql u1@127.0.0.1:(none)> show grants;\r\n+-----------------------------------------------------+\r\n| Grants for User                                     |\r\n+-----------------------------------------------------+\r\n| GRANT References,Execute,Trigger ON *.* TO 'u1'@'%' |\r\n+-----------------------------------------------------+\r\n1 row in set\r\nTime: 0.014s\r\nmysql u1@127.0.0.1:(none)> show databases;\r\n+--------------------+\r\n| Database           |\r\n+--------------------+\r\n| INFORMATION_SCHEMA |\r\n+--------------------+\r\n1 row in set\r\n```\r\n\r\nin MySQL:\r\n```\r\nmysql u1@127.0.0.1:test> show grants;\r\n+----------------------------------+\r\n| Grants for u1@%                  |\r\n+----------------------------------+\r\n| GRANT TRIGGER ON *.* TO 'u1'@'%' |\r\n+----------------------------------+\r\n1 row in set\r\nTime: 0.014s\r\nmysql u1@127.0.0.1:test> show databases;\r\n+--------------------+\r\n| Database           |\r\n+--------------------+\r\n| information_schema |\r\n| mysql              |\r\n| performance_schema |\r\n| sys                |\r\n| test               |\r\n+--------------------+\r\n5 rows in set\r\nTime: 0.014s\r\nmysql u1@127.0.0.1:test> use test;\r\nYou are now connected to database \"test\" as user \"u1\"\r\nTime: 0.001s\r\nmysql u1@127.0.0.1:test> show tables;\r\n+----------------+\r\n| Tables_in_test |\r\n+----------------+\r\n| Ata            |\r\n| atA            |\r\n+----------------+\r\n2 rows in set\r\nTime: 0.014s\r\nmysql u1@127.0.0.1:test>\r\n\r\nmysql u1@127.0.0.1:test> show grants;\r\n+----------------------------------+\r\n| Grants for u1@%                  |\r\n+----------------------------------+\r\n| GRANT EXECUTE ON *.* TO 'u1'@'%' |\r\n+----------------------------------+\r\n1 row in set\r\nTime: 0.015s\r\nmysql u1@127.0.0.1:test> show databases;\r\n+--------------------+\r\n| Database           |\r\n+--------------------+\r\n| information_schema |\r\n| mysql              |\r\n| performance_schema |\r\n| sys                |\r\n| test               |\r\n+--------------------+\r\n5 rows in set\r\n\r\n```\r\n### What is changed and how it works?\r\nadd `TriggerPriv`, `EcecutePriv`, `ReferencePriv` into `globalDBVisible `",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/cache_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

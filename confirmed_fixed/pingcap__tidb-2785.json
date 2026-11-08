@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-2785",
+  "base_commit": "d792ba7b0516ead7be7c80038767034b98ff9b5f",
+  "patch": "diff --git a/plan/planbuilder.go b/plan/planbuilder.go\nindex 01778783f74d1..4573419d3df6d 100644\n--- a/plan/planbuilder.go\n+++ b/plan/planbuilder.go\n@@ -525,9 +525,51 @@ func (b *planBuilder) buildShow(show *ast.ShowStmt) Plan {\n func (b *planBuilder) buildSimple(node ast.StmtNode) Plan {\n \tp := &Simple{Statement: node}\n \tp.SetSchema(expression.NewSchema())\n+\n+\tswitch raw := node.(type) {\n+\tcase *ast.CreateUserStmt, *ast.DropUserStmt, *ast.AlterUserStmt:\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreateUserPriv, \"\", \"\", \"\")\n+\tcase *ast.GrantStmt:\n+\t\tb.visitInfo = collectVisitInfoFromGrantStmt(b.visitInfo, raw)\n+\tcase *ast.SetPwdStmt, *ast.RevokeStmt:\n+\t\t// TODO: Require SUPER privilege, it's a temporary solution here.\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreateUserPriv, \"\", \"\", \"\")\n+\t}\n \treturn p\n }\n \n+func collectVisitInfoFromGrantStmt(vi []visitInfo, stmt *ast.GrantStmt) []visitInfo {\n+\t// To use GRANT, you must have the GRANT OPTION privilege,\n+\t// and you must have the privileges that you are granting.\n+\tdbName := stmt.Level.DBName\n+\ttableName := stmt.Level.TableName\n+\tvi = appendVisitInfo(vi, mysql.GrantPriv, dbName, tableName, \"\")\n+\n+\tvar allPrivs []mysql.PrivilegeType\n+\tfor _, item := range stmt.Privs {\n+\t\tif item.Priv == mysql.AllPriv {\n+\t\t\tswitch stmt.Level.Level {\n+\t\t\tcase ast.GrantLevelGlobal:\n+\t\t\t\tallPrivs = mysql.AllGlobalPrivs\n+\t\t\tcase ast.GrantLevelDB:\n+\t\t\t\tallPrivs = mysql.AllDBPrivs\n+\t\t\tcase ast.GrantLevelTable:\n+\t\t\t\tallPrivs = mysql.AllTablePrivs\n+\t\t\t}\n+\t\t\tbreak\n+\t\t}\n+\t\tvi = appendVisitInfo(vi, item.Priv, dbName, tableName, \"\")\n+\t}\n+\n+\tif allPrivs != nil {\n+\t\tfor _, priv := range allPrivs {\n+\t\t\tvi = appendVisitInfo(vi, priv, dbName, tableName, \"\")\n+\t\t}\n+\t}\n+\n+\treturn vi\n+}\n+\n func (b *planBuilder) getDefaultValue(col *table.Column) (*expression.Constant, error) {\n \tvalue, err := table.GetColDefaultValue(b.ctx, col.ToInfo())\n \tif err != nil {\n",
+  "test_patch": "diff --git a/plan/logical_plan_test.go b/plan/logical_plan_test.go\nindex ad4803da07f84..753787db6b597 100644\n--- a/plan/logical_plan_test.go\n+++ b/plan/logical_plan_test.go\n@@ -1512,6 +1512,54 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {\n \t\t\t\t{mysql.IndexPriv, \"test\", \"t\", \"\"},\n \t\t\t},\n \t\t},\n+\t\t{\n+\t\t\tsql: `create user 'test'@'%' identified by '123456'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t{mysql.CreateUserPriv, \"\", \"\", \"\"},\n+\t\t\t},\n+\t\t},\n+\t\t{\n+\t\t\tsql: `drop user 'test'@'%'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t{mysql.CreateUserPriv, \"\", \"\", \"\"},\n+\t\t\t},\n+\t\t},\n+\t\t{\n+\t\t\tsql: `grant all privileges on test.* to 'test'@'%'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t{mysql.SelectPriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.InsertPriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.UpdatePriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.DeletePriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.CreatePriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.DropPriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.GrantPriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.AlterPriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.ExecutePriv, \"test\", \"\", \"\"},\n+\t\t\t\t{mysql.IndexPriv, \"test\", \"\", \"\"},\n+\t\t\t},\n+\t\t},\n+\t\t{\n+\t\t\tsql: `grant select on test.ttt to 'test'@'%'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t{mysql.SelectPriv, \"test\", \"ttt\", \"\"},\n+\t\t\t\t{mysql.GrantPriv, \"test\", \"ttt\", \"\"},\n+\t\t\t},\n+\t\t},\n+\t\t{\n+\t\t\tsql: `revoke all privileges on *.* from 'test'@'%'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t// TODO: This should be SUPER privilege.\n+\t\t\t\t{mysql.CreateUserPriv, \"\", \"\", \"\"},\n+\t\t\t},\n+\t\t},\n+\t\t{\n+\t\t\tsql: `set password for 'root'@'%' = 'xxxxx'`,\n+\t\t\tans: []visitInfo{\n+\t\t\t\t// TODO: This should be SUPER privilege.\n+\t\t\t\t{mysql.CreateUserPriv, \"\", \"\", \"\"},\n+\t\t\t},\n+\t\t},\n \t}\n \n \tfor _, ca := range cases {\n",
+  "problem_statement": "plan: check privilege for create user and so on\n\ncollect visit info in `buildSimple`, so grant, set password,\r\ncreate or drop user will be checked.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "plan/logical_plan_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

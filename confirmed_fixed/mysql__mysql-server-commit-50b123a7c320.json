@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-50b123a7c320",
+  "base_commit": "8e3d1d3936615e7e9cc0d233e144d5441cf2fbb4",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 7843953e293e..a8671ac0485c 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2914,26 +2914,50 @@ static int replace_user_table(THD *thd, TABLE *table, LEX_USER *combo,\n     /* 1. resolve plugins in the LEX_USER struct if needed */\n     if (!combo->uses_identified_with_clause)\n     {\n+      LEX_STRING old_plugin;\n+\n       /*\n         Get old plugin value from storage.\n       */\n-      combo->plugin.str=\n+\n+      old_plugin.str=\n         get_field(thd->mem_root, table->field[MYSQL_USER_FIELD_PLUGIN]);\n \n       /* \n         It is important not to include the trailing '\\0' in the string length \n         because otherwise the plugin hash search will fail.\n       */\n-      if (combo->plugin.str)\n+      if (old_plugin.str)\n       {\n-        combo->plugin.length= strlen(combo->plugin.str);\n+        old_plugin.length= strlen(old_plugin.str);\n \n         /*\n           Optimize for pointer comparision of built-in plugin name\n         */\n \n-        optimize_plugin_compare_by_pointer(&combo->plugin);\n+        optimize_plugin_compare_by_pointer(&old_plugin);\n+ \n+        /*\n+          Disable plugin change for existing rows with anything but\n+          the built in plugins.\n+          The idea is that all built in plugins support\n+          IDENTIFIED BY ... and none of the external ones currently do.\n+        */\n+        if ((combo->uses_identified_by_clause ||\n+             combo->uses_identified_by_password_clause) &&\n+            !auth_plugin_is_built_in(old_plugin.str))\n+        {\n+          const char *new_plugin= (combo->plugin.str && combo->plugin.str[0]) ?\n+            combo->plugin.str : default_auth_plugin_name.str;\n+\n+          if (my_strcasecmp(system_charset_info, new_plugin, old_plugin.str))\n+          {\n+            push_warning(thd, Sql_condition::WARN_LEVEL_WARN, \n+              ER_SET_PASSWORD_AUTH_PLUGIN, ER(ER_SET_PASSWORD_AUTH_PLUGIN));\n+          }\n+        }\n       }\n+      combo->plugin= old_plugin;\n     }    \n     \n     /* No value for plugin field means default plugin is used */\n",
+  "test_patch": "diff --git a/mysql-test/r/plugin_auth.result b/mysql-test/r/plugin_auth.result\nindex d3541041390d..5d186b5fab90 100644\n--- a/mysql-test/r/plugin_auth.result\n+++ b/mysql-test/r/plugin_auth.result\n@@ -79,6 +79,8 @@ REVOKE ALL PRIVILEGES ON test_grant_db.* FROM new_grant_user;\n # try re-create existing user via GRANT IDENTIFIED BY\n GRANT ALL PRIVILEGES ON test_grant_db.* TO new_grant_user\n IDENTIFIED BY 'unused_password';\n+Warnings:\n+Warning\t1699\tSET PASSWORD has no significance for users authenticating via plugins\n # make sure password doesn't take precendence\n ERROR 28000: Access denied for user 'new_grant_user'@'localhost' (using password: YES)\n #make sure plugin auth still available\ndiff --git a/mysql-test/r/plugin_auth_qa.result b/mysql-test/r/plugin_auth_qa.result\nindex 3cffd6fcb33f..cf3c7d0cbd71 100644\n--- a/mysql-test/r/plugin_auth_qa.result\n+++ b/mysql-test/r/plugin_auth_qa.result\n@@ -174,6 +174,8 @@ SELECT user,plugin,authentication_string,password FROM mysql.user WHERE user !=\n user\tplugin\tauthentication_string\tpassword\n plug\ttest_plugin_server\tplug_dest\t\n GRANT ALL PRIVILEGES ON test_user_db.* TO plug IDENTIFIED BY 'plug_dest_passwd';\n+Warnings:\n+Warning\t1699\tSET PASSWORD has no significance for users authenticating via plugins\n SELECT user,plugin,authentication_string,password FROM mysql.user WHERE user != 'root';\n user\tplugin\tauthentication_string\tpassword\n plug\ttest_plugin_server\tplug_dest\t\n",
+  "problem_statement": "Bug #16072004 : GRANT IDENITFIED BY PASSWORD SUCCESSFUL FOR \nPAM/WINDOWS AUTHENTICATED USERS\n\nWhen somebody tries to set a password for a user that's authenticated\nvia an external plugin the server will just silently ignore the change and \nwon't do anything with the password. \nThis is expected behavior : the external authentication is designed like \nthis. \nBut silently ignoring commands is unfriendly and counter-intuitive.\n\nFixed by adding a warning when this happens.\nNo test cases needed, since existing tests are already covering this\nscenario.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/plugin_auth.result",
+      "mysql-test/r/plugin_auth_qa.result"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

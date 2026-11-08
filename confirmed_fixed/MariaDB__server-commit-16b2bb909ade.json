@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-16b2bb909ade",
+  "base_commit": "5ad8cd93b7a00100ee2166d39e58ca240cc7398c",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 31e0f64e6dcf6..0110a1f0c6547 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -6793,23 +6793,24 @@ bool mysql_routine_grant(THD *thd, TABLE_LIST *table_list,\n     table_name= table_list->table_name.str;\n     grant_name= routine_hash_search(Str->host.str, NullS, db_name,\n                                     Str->user.str, table_name, sph, 1);\n-    if (!grant_name || !grant_name->init_privs)\n+    if (revoke_grant && (!grant_name || !grant_name->init_privs))\n     {\n-      if (revoke_grant)\n-      {\n-        my_error(ER_NONEXISTING_PROC_GRANT, MYF(0),\n-\t         Str->user.str, Str->host.str, table_name);\n-\tresult= TRUE;\n-\tcontinue;\n-      }\n+      my_error(ER_NONEXISTING_PROC_GRANT, MYF(0),\n+               Str->user.str, Str->host.str, table_name);\n+      result= TRUE;\n+      continue;\n+    }\n+    if (!grant_name)\n+    {\n+      DBUG_ASSERT(!revoke_grant);\n       grant_name= new GRANT_NAME(Str->host.str, db_name,\n-\t\t\t\t Str->user.str, table_name,\n-\t\t\t\t rights, TRUE);\n+                                 Str->user.str, table_name,\n+                                 rights, TRUE);\n       if (!grant_name ||\n-        my_hash_insert(sph->get_priv_hash(), (uchar*) grant_name))\n+          my_hash_insert(sph->get_priv_hash(), (uchar*) grant_name))\n       {\n         result= TRUE;\n-\tcontinue;\n+        continue;\n       }\n     }\n \n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/role_grant_propagate-29458.result b/mysql-test/suite/roles/role_grant_propagate-29458.result\nindex a8ee6e7d987d0..28aa053f38a44 100644\n--- a/mysql-test/suite/roles/role_grant_propagate-29458.result\n+++ b/mysql-test/suite/roles/role_grant_propagate-29458.result\n@@ -79,7 +79,6 @@ grant insert(a) on some_db.t1 to r_active_column;\n grant insert on *.* to middle_level;\n grant alter routine on procedure some_db.p1 to r_active_proc;\n grant alter routine on function some_db.f1 to r_active_func;\n-flush privileges;\n connect  con1, localhost, foo,,;\n select * from some_db.t1;\n ERROR 42000: SELECT command denied to user 'foo'@'localhost' for table 't1'\ndiff --git a/mysql-test/suite/roles/role_grant_propagate-29458.test b/mysql-test/suite/roles/role_grant_propagate-29458.test\nindex 07c29a3800c81..1b0906dce2536 100644\n--- a/mysql-test/suite/roles/role_grant_propagate-29458.test\n+++ b/mysql-test/suite/roles/role_grant_propagate-29458.test\n@@ -103,7 +103,6 @@ grant insert on *.* to middle_level;\n \n grant alter routine on procedure some_db.p1 to r_active_proc;\n grant alter routine on function some_db.f1 to r_active_func;\n-flush privileges;\n \n --connect (con1, localhost, foo,,)\n --error ER_TABLEACCESS_DENIED_ERROR\n",
+  "problem_statement": "execute granted indirectly (via roles) doesn't always work\n\n{code:sql}\r\ncreate procedure p1 () select 1;\r\ncreate role r1, r2;\r\ngrant r1 to r2;\r\ncreate user foo@localhost;\r\ngrant r2 to foo@localhost;\r\ngrant execute on procedure test.p1 to r1;\r\n#grant alter routine on procedure test.p1 to r2;\r\nconnect foo,localhost,foo;\r\nset role r2;\r\nshow grants;\r\ncall p1();\r\n{code}\r\nthis test succeeds, {{call p1()}} is allowed. but if {{grant alter routine}} is uncommented, the test fails.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/role_grant_propagate-29458.result",
+      "mysql-test/suite/roles/role_grant_propagate-29458.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

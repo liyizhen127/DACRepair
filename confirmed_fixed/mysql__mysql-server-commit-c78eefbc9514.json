@@ -1,0 +1,29 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-c78eefbc9514",
+  "base_commit": "50c02f463b7fd4337796e4cd835e7adc86c98e44",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex d6f52fed1d24..f1698dcc9116 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2035,7 +2035,7 @@ static int replace_column_table(GRANT_TABLE *g_t,\n   {\n     table->file->extra(HA_EXTRA_RETRIEVE_ALL_COLS);\n     if (table->file->index_read(table->record[0], (byte*) table->field[0]->ptr,\n-\t\t\t\ttable->key_info[0].key_length,\n+                                key_length,\n \t\t\t\tHA_READ_KEY_EXACT))\n       goto end;\n \n",
+  "test_patch": "diff --git a/mysql-test/r/grant.result b/mysql-test/r/grant.result\nindex f903e35fa1f0..d163e1033fce 100644\n--- a/mysql-test/r/grant.result\n+++ b/mysql-test/r/grant.result\n@@ -321,3 +321,23 @@ DROP DATABASE testdb7;\n DROP DATABASE testdb8;\n DROP DATABASE testdb9;\n DROP DATABASE testdb10;\n+create table t1(a int, b int, c int, d int);\n+grant insert(b), insert(c), insert(d), insert(a) on t1 to grant_user@localhost;\n+show grants for grant_user@localhost;\n+Grants for grant_user@localhost\n+GRANT USAGE ON *.* TO 'grant_user'@'localhost'\n+GRANT INSERT (a, d, c, b) ON `test`.`t1` TO 'grant_user'@'localhost'\n+select Host,Db,User,Table_name,Column_name,Column_priv from mysql.columns_priv;\n+Host\tDb\tUser\tTable_name\tColumn_name\tColumn_priv\n+localhost\ttest\tgrant_user\tt1\tc\tInsert\n+localhost\ttest\tgrant_user\tt1\tb\tInsert\n+localhost\ttest\tgrant_user\tt1\ta\tInsert\n+localhost\ttest\tgrant_user\tt1\td\tInsert\n+revoke ALL PRIVILEGES on t1 from grant_user@localhost;\n+show grants for grant_user@localhost;\n+Grants for grant_user@localhost\n+GRANT USAGE ON *.* TO 'grant_user'@'localhost'\n+select Host,Db,User,Table_name,Column_name,Column_priv from mysql.columns_priv;\n+Host\tDb\tUser\tTable_name\tColumn_name\tColumn_priv\n+drop user grant_user@localhost;\n+drop table t1;\ndiff --git a/mysql-test/t/grant.test b/mysql-test/t/grant.test\nindex 963b9ae5080b..169dd03ad86a 100644\n--- a/mysql-test/t/grant.test\n+++ b/mysql-test/t/grant.test\n@@ -267,3 +267,16 @@ DROP DATABASE testdb8;\n DROP DATABASE testdb9;\n DROP DATABASE testdb10;\n \n+#\n+# Bug #6932: a problem with 'revoke ALL PRIVILEGES'\n+#\n+\n+create table t1(a int, b int, c int, d int);\n+grant insert(b), insert(c), insert(d), insert(a) on t1 to grant_user@localhost;\n+show grants for grant_user@localhost;\n+select Host,Db,User,Table_name,Column_name,Column_priv from mysql.columns_priv;\n+revoke ALL PRIVILEGES on t1 from grant_user@localhost;\n+show grants for grant_user@localhost;\n+select Host,Db,User,Table_name,Column_name,Column_priv from mysql.columns_priv;\n+drop user grant_user@localhost;\n+drop table t1;\ndiff --git a/tests/grant.pl b/tests/grant.pl\nindex eb2d00f3e1d4..cd6a2eb80deb 100644\n--- a/tests/grant.pl\n+++ b/tests/grant.pl\n@@ -74,9 +74,9 @@\n \n safe_query(\"grant select on *.* to $user\");\n safe_query(\"set password FOR ${opt_user}2\\@$opt_host = password('test')\",1);\n-safe_query(\"set password FOR $opt_user=password('test')\");\n+safe_query(\"set password FOR $opt_user\\@$opt_host=password('test')\");\n user_connect(1);\n-safe_query(\"set password FOR $opt_user=''\");\n+safe_query(\"set password FOR $opt_user\\@$opt_host=''\");\n user_connect(0);\n user_query(\"select * from mysql.user where user = '$opt_user'\");\n user_query(\"select * from mysql.db where user = '$opt_user'\");\n",
+  "problem_statement": "Fixes (bug #6932: 'revoke all privileges...' doesn't remove all proper columns from columns_priv\n       bug #6933: error in the tests/grant.pl test).",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant.result",
+      "mysql-test/t/grant.test",
+      "tests/grant.pl"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

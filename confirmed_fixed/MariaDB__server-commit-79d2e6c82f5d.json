@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-79d2e6c82f5d",
+  "base_commit": "00ba619106ca11aef27b8203fc03da2ec6c96409",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex adc073f7117e7..879316f1da355 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -1871,7 +1871,9 @@ int acl_check_setrole(THD *thd, char *rolename, ulonglong *access)\n       continue;\n \n     acl_user= (ACL_USER *)acl_user_base;\n-    if (acl_user->wild_eq(thd->security_ctx->user, thd->security_ctx->host))\n+    /* Yes! priv_user@host. Don't ask why - that's what check_access() does. */\n+    if (acl_user->wild_eq(thd->security_ctx->priv_user,\n+                          thd->security_ctx->host))\n     {\n       is_granted= TRUE;\n       break;\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/set_role-5232.result b/mysql-test/suite/roles/set_role-5232.result\nnew file mode 100644\nindex 0000000000000..888a5f10c3da4\n--- /dev/null\n+++ b/mysql-test/suite/roles/set_role-5232.result\n@@ -0,0 +1,15 @@\n+create user ''@localhost;\n+create user c;\n+grant select on mysql.* to c;\n+create role r1;\n+grant r1 to c;\n+select user(), current_user();\n+user()\tcurrent_user()\n+c@localhost\t@localhost\n+select user from mysql.user group by user;\n+ERROR 42000: SELECT command denied to user ''@'localhost' for table 'user'\n+set role r1;\n+ERROR OP000: Invalid role specification `r1`.\n+drop role r1;\n+drop user c;\n+drop user ''@localhost;\ndiff --git a/mysql-test/suite/roles/set_role-5232.test b/mysql-test/suite/roles/set_role-5232.test\nnew file mode 100644\nindex 0000000000000..c6cb3d925a446\n--- /dev/null\n+++ b/mysql-test/suite/roles/set_role-5232.test\n@@ -0,0 +1,20 @@\n+#\n+# MDEV-5232 SET ROLE checks privileges differently from check_access()\n+#\n+--source include/not_embedded.inc\n+create user ''@localhost;\n+create user c;\n+grant select on mysql.* to c;\n+create role r1;\n+grant r1 to c;\n+connect (c,localhost,c,,,,,);\n+select user(), current_user();\n+--error ER_TABLEACCESS_DENIED_ERROR\n+select user from mysql.user group by user;\n+--error ER_INVALID_ROLE\n+set role r1;\n+disconnect c;\n+connection default;\n+drop role r1;\n+drop user c;\n+drop user ''@localhost;\n",
+  "problem_statement": "SET ROLE checks privileges differently from check_access()\n\nTest case:\n{code:sql}\ncreate user ''@localhost;\ncreate user c;\ngrant select on mysql.* to c;\ncreate role r1;\ngrant r1 to c;\nconnect (c,localhost,c,,,,,);\nselect user(), current_user();\n--error ER_TABLEACCESS_DENIED_ERROR\nselect user from mysql.user group by user;\nset role r1;\ndisconnect c;\nconnection default;\ndrop role r1;\ndrop user c;\ndrop user ''@localhost;\n{code}\n\nNote that {{SELECT}} fails, while {{SET ROLE}} succeeds. Both grants were to {{c@%}}.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/set_role-5232.result",
+      "mysql-test/suite/roles/set_role-5232.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-8486",
+  "base_commit": "71088815e7c5121e069d7ec10595d176a44b9bea",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex 5868bc304b9db..87ec96a350385 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -119,7 +119,7 @@ type PlanBuilder struct {\n \tinUpdateStmt bool\n \t// colMapper stores the column that must be pre-resolved.\n \tcolMapper map[*ast.ColumnNameExpr]int\n-\t// Collect the visit information for privilege check.\n+\t// visitInfo is used for privilege check.\n \tvisitInfo     []visitInfo\n \ttableHintInfo []tableHintInfo\n \toptFlag       uint64\n@@ -275,7 +275,7 @@ func (b *PlanBuilder) buildSet(v *ast.SetStmt) (Plan, error) {\n \treturn p, nil\n }\n \n-// Detect aggregate function or groupby clause.\n+// detectSelectAgg detects an aggregate function or GROUP BY clause.\n func (b *PlanBuilder) detectSelectAgg(sel *ast.SelectStmt) bool {\n \tif sel.GroupBy != nil {\n \t\treturn true\n@@ -749,6 +749,10 @@ const (\n )\n \n func (b *PlanBuilder) buildAnalyze(as *ast.AnalyzeTableStmt) (Plan, error) {\n+\tfor _, tbl := range as.TableNames {\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.InsertPriv, tbl.Schema.O, tbl.Name.O, \"\")\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, tbl.Schema.O, tbl.Name.O, \"\")\n+\t}\n \tif as.MaxNumBuckets == 0 {\n \t\tas.MaxNumBuckets = defaultMaxNumBuckets\n \t} else {\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex 3dec73867a627..af3edfbb3db2c 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -349,6 +349,43 @@ func (s *testPrivilegeSuite) TestUseDb(c *C) {\n \n }\n \n+func (s *testPrivilegeSuite) TestAnalyzeTable(c *C) {\n+\n+\tse := newSession(c, s.store, s.dbName)\n+\t// high privileged user\n+\tmustExec(c, se, \"CREATE USER 'asuper'\")\n+\tmustExec(c, se, \"CREATE USER 'anobody'\")\n+\tmustExec(c, se, \"GRANT ALL ON *.* TO 'asuper'\")\n+\tmustExec(c, se, \"FLUSH PRIVILEGES\")\n+\tmustExec(c, se, \"CREATE DATABASE atest\")\n+\tmustExec(c, se, \"use atest\")\n+\tmustExec(c, se, \"CREATE TABLE t1 (a int)\")\n+\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"asuper\", Hostname: \"localhost\", AuthUsername: \"asuper\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, \"analyze table mysql.user\")\n+\t// low privileged user\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"anobody\", Hostname: \"localhost\", AuthUsername: \"anobody\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\t_, err := se.Execute(context.Background(), \"analyze table t1\")\n+\tc.Assert(err, NotNil) // fails\n+\n+\t// try again after SELECT privilege granted\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"asuper\", Hostname: \"localhost\", AuthUsername: \"asuper\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, \"GRANT SELECT ON atest.* TO 'anobody'\")\n+\tmustExec(c, se, \"FLUSH PRIVILEGES\")\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"anobody\", Hostname: \"localhost\", AuthUsername: \"anobody\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\t_, err = se.Execute(context.Background(), \"analyze table t1\")\n+\tc.Assert(err, NotNil) // stll fails (only select)\n+\n+\t// Add INSERT privilege and it should work.\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"asuper\", Hostname: \"localhost\", AuthUsername: \"asuper\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, \"GRANT INSERT ON atest.* TO 'anobody'\")\n+\tmustExec(c, se, \"FLUSH PRIVILEGES\")\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"anobody\", Hostname: \"localhost\", AuthUsername: \"anobody\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\t_, err = se.Execute(context.Background(), \"analyze table t1\")\n+\tc.Assert(err, IsNil)\n+\n+}\n+\n func (s *testPrivilegeSuite) TestInformationSchema(c *C) {\n \n \t// This test tests no privilege check for INFORMATION_SCHEMA database.\n",
+  "problem_statement": "Check privilege for analyze statement\n\nAccording to mysql document:\r\n\r\nhttps://dev.mysql.com/doc/refman/5.7/en/analyze-table.html \r\nThis statement requires SELECT and INSERT privileges for the table.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

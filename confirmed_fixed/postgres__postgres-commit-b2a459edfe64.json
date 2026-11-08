@@ -1,0 +1,37 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-b2a459edfe64",
+  "base_commit": "36cb5e7c512bef394c9288786c62ef0eb1e891ba",
+  "patch": "diff --git a/src/backend/commands/user.c b/src/backend/commands/user.c\nindex aa69821be4963..c8c0dd0dd5368 100644\n--- a/src/backend/commands/user.c\n+++ b/src/backend/commands/user.c\n@@ -1259,7 +1259,18 @@ GrantRole(GrantRoleStmt *stmt)\n \tListCell   *item;\n \n \tif (stmt->grantor)\n+\t{\n \t\tgrantor = get_rolespec_oid(stmt->grantor, false);\n+\n+\t\t/*\n+\t\t * Currently, this clause is only for SQL compatibility, not very\n+\t\t * interesting otherwise.\n+\t\t */\n+\t\tif (grantor != GetUserId())\n+\t\t\tereport(ERROR,\n+\t\t\t\t\t(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),\n+\t\t\t\t\t errmsg(\"grantor must be current user\")));\n+\t}\n \telse\n \t\tgrantor = GetUserId();\n \ndiff --git a/src/backend/parser/gram.y b/src/backend/parser/gram.y\nindex a6d0cefa6bb67..86ce33bd97aa1 100644\n--- a/src/backend/parser/gram.y\n+++ b/src/backend/parser/gram.y\n@@ -7196,6 +7196,7 @@ RevokeRoleStmt:\n \t\t\t\t\tn->admin_opt = false;\n \t\t\t\t\tn->granted_roles = $2;\n \t\t\t\t\tn->grantee_roles = $4;\n+\t\t\t\t\tn->grantor = $5;\n \t\t\t\t\tn->behavior = $6;\n \t\t\t\t\t$$ = (Node*)n;\n \t\t\t\t}\n@@ -7206,6 +7207,7 @@ RevokeRoleStmt:\n \t\t\t\t\tn->admin_opt = true;\n \t\t\t\t\tn->granted_roles = $5;\n \t\t\t\t\tn->grantee_roles = $7;\n+\t\t\t\t\tn->grantor = $8;\n \t\t\t\t\tn->behavior = $9;\n \t\t\t\t\t$$ = (Node*)n;\n \t\t\t\t}\n",
+  "test_patch": "diff --git a/src/test/regress/expected/privileges.out b/src/test/regress/expected/privileges.out\nindex 9b91865dcc404..1d7ce4d0eaa05 100644\n--- a/src/test/regress/expected/privileges.out\n+++ b/src/test/regress/expected/privileges.out\n@@ -29,6 +29,7 @@ CREATE USER regress_priv_user5;\t-- duplicate\n ERROR:  role \"regress_priv_user5\" already exists\n CREATE USER regress_priv_user6;\n CREATE USER regress_priv_user7;\n+CREATE ROLE regress_priv_role;\n GRANT pg_read_all_data TO regress_priv_user6;\n GRANT pg_write_all_data TO regress_priv_user7;\n CREATE GROUP regress_priv_group1;\n@@ -44,6 +45,14 @@ CREATE FUNCTION leak(integer,integer) RETURNS boolean\n   LANGUAGE internal IMMUTABLE STRICT;  -- but deliberately not LEAKPROOF\n ALTER FUNCTION leak(integer,integer) OWNER TO regress_priv_user1;\n -- test owner privileges\n+GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE;\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY foo; -- error\n+ERROR:  role \"foo\" does not exist\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2; -- error\n+ERROR:  grantor must be current user\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_USER;\n+REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_ROLE;\n+DROP ROLE regress_priv_role;\n SET SESSION AUTHORIZATION regress_priv_user1;\n SELECT session_user, current_user;\n     session_user    |    current_user    \ndiff --git a/src/test/regress/sql/privileges.sql b/src/test/regress/sql/privileges.sql\nindex 6353a1cb8cc15..5c84df1a13110 100644\n--- a/src/test/regress/sql/privileges.sql\n+++ b/src/test/regress/sql/privileges.sql\n@@ -32,6 +32,7 @@ CREATE USER regress_priv_user5;\n CREATE USER regress_priv_user5;\t-- duplicate\n CREATE USER regress_priv_user6;\n CREATE USER regress_priv_user7;\n+CREATE ROLE regress_priv_role;\n \n GRANT pg_read_all_data TO regress_priv_user6;\n GRANT pg_write_all_data TO regress_priv_user7;\n@@ -53,6 +54,13 @@ ALTER FUNCTION leak(integer,integer) OWNER TO regress_priv_user1;\n \n -- test owner privileges\n \n+GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE;\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY foo; -- error\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2; -- error\n+REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_USER;\n+REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_ROLE;\n+DROP ROLE regress_priv_role;\n+\n SET SESSION AUTHORIZATION regress_priv_user1;\n SELECT session_user, current_user;\n \n",
+  "problem_statement": "Fix GRANTED BY support in REVOKE ROLE statements\n\nCommit 6aaaa76bb added support for the GRANTED BY clause in GRANT and\nREVOKE statements, but missed adding support for checking the role in\nthe REVOKE ROLE case. Fix by checking that the parsed role matches the\nCURRENT_ROLE/CURRENT_USER requirement, and also add some tests for it.\nBackpatch to v14 where GRANTED BY support was introduced.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "implemented",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64",
+    "prebuilt_donor": {
+      "image_id": "sha256:4fd805dcc9e3669ed01edd8b13614a26290e338685baf07bb8ca6dd6f8931e36",
+      "reuse_audit": "test_patch_only_uncompiled_sql_tcl"
+    }
+  },
+  "evaluation_spec": {
+    "mode": "native",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/privileges.out",
+      "src/test/regress/sql/privileges.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [
+      "privileges"
+    ],
+    "test_status": "upstream_unexecuted",
+    "baseline_diff_contains": [
+      "GRANTED BY foo",
+      "-ERROR:  role \"foo\" does not exist",
+      "-ERROR:  grantor must be current user"
+    ]
+  },
+  "blockers": []
+}

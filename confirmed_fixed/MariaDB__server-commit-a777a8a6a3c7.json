@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-a777a8a6a3c7",
+  "base_commit": "90c39c5a500278d19240550f7c4bf370c441c100",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex a00e5b82b1297..1f1962a5d44bd 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -9258,7 +9258,9 @@ static my_bool kill_threads_callback(THD *thd, kill_threads_callback_arg *arg)\n     {\n       if (!(arg->thd->security_ctx->master_access & SUPER_ACL) &&\n           !arg->thd->security_ctx->user_matches(thd->security_ctx))\n-        return 1;\n+      {\n+        return MY_TEST(arg->thd->security_ctx->master_access & PROCESS_ACL);\n+      }\n       if (!arg->threads_to_kill.push_back(thd, arg->thd->mem_root))\n       {\n         mysql_mutex_lock(&thd->LOCK_thd_kill); // Lock from delete\n@@ -9380,7 +9382,10 @@ void sql_kill_user(THD *thd, LEX_USER *user, killed_state state)\n     my_ok(thd, rows);\n     break;\n   case ER_KILL_DENIED_ERROR:\n-    my_error(error, MYF(0), (long long) thd->thread_id);\n+    char buf[DEFINER_LENGTH+1];\n+    strxnmov(buf, sizeof(buf), user->user.str, \"@\", user->host.str, NULL);\n+    my_printf_error(ER_KILL_DENIED_ERROR, ER_THD(thd, ER_CANNOT_USER), MYF(0),\n+                    \"KILL USER\", buf);\n     break;\n   case ER_OUT_OF_RESOURCES:\n   default:\n",
+  "test_patch": "diff --git a/mysql-test/main/kill-2.result b/mysql-test/main/kill-2.result\nindex daaba2c092a9b..919078f3efb28 100644\n--- a/mysql-test/main/kill-2.result\n+++ b/mysql-test/main/kill-2.result\n@@ -10,3 +10,34 @@ foo\n root\n kill user foo@'127.0.0.1';\n drop user foo@'127.0.0.1';\n+#\n+# KILL USER and missing privileges\n+#\n+create user a@'127.0.0.1';\n+create user b@'127.0.0.1';\n+grant process on *.* to a@'127.0.0.1';\n+grant select on *.* to b@'127.0.0.1';\n+connect a,127.0.0.1,a;\n+show grants;\n+Grants for a@127.0.0.1\n+GRANT PROCESS ON *.* TO `a`@`127.0.0.1`\n+connect b,127.0.0.1,b;\n+show processlist;\n+Id\tUser\tHost\tdb\tCommand\tTime\tState\tInfo\tProgress\n+#\tb\t#\ttest\t#\t#\tInit\tshow processlist\t#\n+kill user a;\n+kill user x;\n+connection a;\n+show processlist;\n+Id\tUser\tHost\tdb\tCommand\tTime\tState\tInfo\tProgress\n+#\troot\t#\ttest\t#\t#\t#\t#\t#\n+#\ta\t#\ttest\t#\t#\t#\t#\t#\n+#\tb\t#\ttest\t#\t#\t#\t#\t#\n+kill user b;\n+ERROR HY000: Operation KILL USER failed for b@%\n+connection default;\n+drop user a@'127.0.0.1';\n+drop user b@'127.0.0.1';\n+#\n+# End of 10.3 tests\n+#\ndiff --git a/mysql-test/main/kill-2.test b/mysql-test/main/kill-2.test\nindex a30324fac4448..1bbe395371c6d 100644\n--- a/mysql-test/main/kill-2.test\n+++ b/mysql-test/main/kill-2.test\n@@ -28,3 +28,30 @@ let $wait_condition=\n --source include/wait_condition.inc\n drop user foo@'127.0.0.1';\n --enable_service_connection\n+\n+--echo #\n+--echo # KILL USER and missing privileges\n+--echo #\n+create user a@'127.0.0.1';\n+create user b@'127.0.0.1';\n+grant process on *.* to a@'127.0.0.1';\n+grant select on *.* to b@'127.0.0.1';\n+--connect a,127.0.0.1,a\n+show grants;\n+--connect b,127.0.0.1,b\n+--replace_column 1 # 3 # 5 # 6 # 9 #\n+show processlist;\n+kill user a; # existing connection, but not visible to current_user\n+kill user x; # not existing connection\n+--connection a\n+--replace_column 1 # 3 # 5 # 6 # 7 # 8 # 9 #\n+show processlist;\n+--error ER_KILL_DENIED_ERROR\n+kill user b;\n+--connection default\n+drop user a@'127.0.0.1';\n+drop user b@'127.0.0.1';\n+\n+--echo #\n+--echo # End of 10.3 tests\n+--echo #\n",
+  "problem_statement": "KILL USER and missing privileges\n\nnote that `KILL USER foo` should *not* fail with ER_KILL_DENIED_ERROR\nwhen SHOW PROCESSLIST doesn't show connections of that user.\nBecause no connections exist or because the caller has no PROCESS -\ndoesn't matter.\n\nalso, fix the error message to make sense\n(\"You are not owner of thread <current connection id>\" is ridiculous)",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/main/kill-2.result",
+      "mysql-test/main/kill-2.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

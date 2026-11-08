@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-287f2d2947c1",
+  "base_commit": "c4bef7ad3c1528e902e88aa8b2446f29ffc1b0e6",
+  "patch": "diff --git a/sql/sql_prepare.cc b/sql/sql_prepare.cc\nindex 104046395c43e..0db1daa378e52 100644\n--- a/sql/sql_prepare.cc\n+++ b/sql/sql_prepare.cc\n@@ -2465,6 +2465,7 @@ static bool check_prepared_statement(Prepared_statement *stmt)\n   case SQLCOM_GRANT:\n   case SQLCOM_GRANT_ROLE:\n   case SQLCOM_REVOKE:\n+  case SQLCOM_REVOKE_ROLE:\n   case SQLCOM_KILL:\n   case SQLCOM_COMPOUND:\n   case SQLCOM_SHUTDOWN:\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/prepare_stmt_with_role.result b/mysql-test/suite/roles/prepare_stmt_with_role.result\nindex 8b647bf2849e5..71dffaafa9219 100644\n--- a/mysql-test/suite/roles/prepare_stmt_with_role.result\n+++ b/mysql-test/suite/roles/prepare_stmt_with_role.result\n@@ -38,6 +38,15 @@ Grants for test_user@%\n GRANT developers TO 'test_user'@'%'\n GRANT USAGE ON *.* TO 'test_user'@'%'\n #\n+# Test revoking a role.\n+#\n+SET @revokeRole = 'REVOKE developers FROM test_user';\n+PREPARE stmtRevokeRole FROM @revokeRole;\n+EXECUTE stmtRevokeRole;\n+SHOW GRANTS FOR test_user;\n+Grants for test_user@%\n+GRANT USAGE ON *.* TO 'test_user'@'%'\n+#\n # Now drop the role.\n #\n SET @dropRole = 'DROP ROLE developers';\ndiff --git a/mysql-test/suite/roles/prepare_stmt_with_role.test b/mysql-test/suite/roles/prepare_stmt_with_role.test\nindex 233249521b671..be2c92b3e3657 100644\n--- a/mysql-test/suite/roles/prepare_stmt_with_role.test\n+++ b/mysql-test/suite/roles/prepare_stmt_with_role.test\n@@ -32,6 +32,15 @@ EXECUTE stmtGrantRole;\n SELECT * FROM mysql.roles_mapping;\n SHOW GRANTS FOR test_user;\n \n+--echo #\n+--echo # Test revoking a role.\n+--echo #\n+SET @revokeRole = 'REVOKE developers FROM test_user';\n+PREPARE stmtRevokeRole FROM @revokeRole;\n+EXECUTE stmtRevokeRole;\n+\n+SHOW GRANTS FOR test_user;\n+\n --echo #\n --echo # Now drop the role.\n --echo #\n",
+  "problem_statement": "Roles aren't supported in prepared statements\n\nIt's not possible to use CREATE/DROP ROLE in prepared statements. Example:\n\n{noformat}\nMariaDB [(none)]> SET @createRole = 'CREATE ROLE developers';\nQuery OK, 0 rows affected (0.00 sec)\nMariaDB [(none)]> PREPARE stmtCreateRole FROM @createRole;\nERROR 1295 (HY000): This command is not supported in the prepared statement protocol yet\n{noformat}",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/prepare_stmt_with_role.result",
+      "mysql-test/suite/roles/prepare_stmt_with_role.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

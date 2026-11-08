@@ -1,0 +1,27 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-054c1c3e650b",
+  "base_commit": "34c11958b6f12a90c0ec9fca3ce502a32280c30d",
+  "patch": "diff --git a/src/backend/catalog/system_views.sql b/src/backend/catalog/system_views.sql\nindex 8612d99a8909e..ad340887f5416 100644\n--- a/src/backend/catalog/system_views.sql\n+++ b/src/backend/catalog/system_views.sql\n@@ -1397,8 +1397,9 @@ CREATE VIEW pg_stat_progress_cluster AS\n         datname,\n         relid,\n         CASE WHEN command IN ('CLUSTER', 'VACUUM FULL') THEN command\n-             WHEN repack_index_relid = 0 THEN 'VACUUM FULL'\n-             ELSE 'CLUSTER' END AS command,\n+             WHEN command = 'REPACK' AND repack_index_relid = 0 THEN 'VACUUM FULL'\n+             WHEN command = 'REPACK' THEN 'CLUSTER'\n+             END AS command,\n         phase,\n         repack_index_relid AS cluster_index_relid,\n         heap_tuples_scanned,\ndiff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h\nindex c539af25327b7..f8aaf9aab0250 100644\n--- a/src/include/catalog/catversion.h\n+++ b/src/include/catalog/catversion.h\n@@ -57,6 +57,6 @@\n  */\n \n /*\t\t\t\t\t\t\tyyyymmddN */\n-#define CATALOG_VERSION_NO\t202609101\n+#define CATALOG_VERSION_NO\t202609102\n \n #endif\n",
+  "test_patch": "diff --git a/src/test/regress/expected/rules.out b/src/test/regress/expected/rules.out\nindex 1a29d46213eab..4a8cc759d7b24 100644\n--- a/src/test/regress/expected/rules.out\n+++ b/src/test/regress/expected/rules.out\n@@ -2038,8 +2038,9 @@ pg_stat_progress_cluster| SELECT pid,\n     relid,\n         CASE\n             WHEN (command = ANY (ARRAY['CLUSTER'::text, 'VACUUM FULL'::text])) THEN command\n-            WHEN (repack_index_relid = (0)::oid) THEN 'VACUUM FULL'::text\n-            ELSE 'CLUSTER'::text\n+            WHEN ((command = 'REPACK'::text) AND (repack_index_relid = (0)::oid)) THEN 'VACUUM FULL'::text\n+            WHEN (command = 'REPACK'::text) THEN 'CLUSTER'::text\n+            ELSE NULL::text\n         END AS command,\n     phase,\n     repack_index_relid AS cluster_index_relid,\n",
+  "problem_statement": "PostgreSQL progress view reports CLUSTER to users without access to command details.\n\nWhile another session runs REPACK, CLUSTER, or VACUUM FULL, a user lacking permission to view progress details sees CLUSTER in pg_stat_progress_cluster instead of NULL. The command should remain NULL when the user lacks access.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/rules.out"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

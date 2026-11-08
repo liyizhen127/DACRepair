@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-b9ddeeff2410",
+  "base_commit": "86362129a2f70349cc79adb0825d5bc8f9a61f27",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex c371cd42ade30..abc53687ee04c 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -300,7 +300,7 @@ class ACL_USER :public ACL_USER_BASE\n \n   bool eq(const char *user2, const char *host2) { return !cmp(user2, host2); }\n \n-  bool wild_eq(const char *user2, const char *host2, const char *ip2 = 0)\n+  bool wild_eq(const char *user2, const char *host2, const char *ip2)\n   {\n     if (strcmp(safe_str(user.str), safe_str(user2)))\n       return false;\n@@ -1883,7 +1883,7 @@ int acl_check_setrole(THD *thd, char *rolename, ulonglong *access)\n     acl_user= (ACL_USER *)acl_user_base;\n     /* Yes! priv_user@host. Don't ask why - that's what check_access() does. */\n     if (acl_user->wild_eq(thd->security_ctx->priv_user,\n-                          thd->security_ctx->host))\n+                          thd->security_ctx->host, thd->security_ctx->ip))\n     {\n       is_granted= TRUE;\n       break;\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/ip-6401.result b/mysql-test/suite/roles/ip-6401.result\nnew file mode 100644\nindex 0000000000000..a9876eb8273f0\n--- /dev/null\n+++ b/mysql-test/suite/roles/ip-6401.result\n@@ -0,0 +1,13 @@\n+create role r1;\n+create user foo@'127.0.0.1';\n+grant r1 to foo@'127.0.0.1';\n+show grants;\n+Grants for foo@127.0.0.1\n+GRANT r1 TO 'foo'@'127.0.0.1'\n+GRANT USAGE ON *.* TO 'foo'@'127.0.0.1'\n+set role r1;\n+select * from information_schema.enabled_roles;\n+ROLE_NAME\n+r1\n+drop user foo@'127.0.0.1';\n+drop role r1;\ndiff --git a/mysql-test/suite/roles/ip-6401.test b/mysql-test/suite/roles/ip-6401.test\nnew file mode 100644\nindex 0000000000000..34d8553afa336\n--- /dev/null\n+++ b/mysql-test/suite/roles/ip-6401.test\n@@ -0,0 +1,13 @@\n+--source include/not_embedded.inc\n+create role r1;\n+create user foo@'127.0.0.1';\n+grant r1 to foo@'127.0.0.1';\n+\n+--connect (con1,127.0.0.1,foo,,)\n+show grants;\n+set role r1;\n+select * from information_schema.enabled_roles;\n+\n+connection default;\n+drop user foo@'127.0.0.1';\n+drop role r1;\n",
+  "problem_statement": "SET ROLE returning ERROR 1959 Invalid role specification for valid role\n\nCannot \"SET ROLE\" to a correctly-defined role that has been granted to an account. Seems to affect any account not defined as \"@localhost\"",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/ip-6401.result",
+      "mysql-test/suite/roles/ip-6401.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

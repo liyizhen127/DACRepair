@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-24442",
+  "base_commit": "5e9e0e6e37be14a84f22ac86a2e98dd36b092f66",
+  "patch": "diff --git a/privilege/privileges/privileges.go b/privilege/privileges/privileges.go\nindex 5b7917e802aac..c5ec2f8394385 100644\n--- a/privilege/privileges/privileges.go\n+++ b/privilege/privileges/privileges.go\n@@ -140,7 +140,8 @@ func (p *UserPrivileges) RequestVerificationWithUser(db, table, column string, p\n \t}\n \n \tmysqlPriv := p.Handle.Get()\n-\treturn mysqlPriv.RequestVerification(nil, user.Username, user.Hostname, db, table, column, priv)\n+\troles := mysqlPriv.getDefaultRoles(user.Username, user.Hostname)\n+\treturn mysqlPriv.RequestVerification(roles, user.Username, user.Hostname, db, table, column, priv)\n }\n \n // GetEncodedPassword implements the Manager interface.\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex 816fe5a59d0bd..2efb565b3ed2b 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -1393,3 +1393,31 @@ func (s *testPrivilegeSuite) TestSecurityEnhancedModeStatusVars(c *C) {\n \t\tAuthHostname: \"%\",\n \t}, nil, nil)\n }\n+\n+// TestViewDefiner tests that default roles are correctly applied in the algorithm definer\n+// See: https://github.com/pingcap/tidb/issues/24414\n+func (s *testPrivilegeSuite) TestViewDefiner(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"CREATE DATABASE issue24414\")\n+\ttk.MustExec(\"USE issue24414\")\n+\ttk.MustExec(`create table table1(\n+\t\tcol1 int,\n+\t\tcol2 int,\n+\t\tcol3 int\n+\t\t)`)\n+\ttk.MustExec(`insert into table1 values (1,1,1),(2,2,2)`)\n+\ttk.MustExec(`CREATE ROLE 'ACL-mobius-admin'`)\n+\ttk.MustExec(`CREATE USER 'mobius-admin'`)\n+\ttk.MustExec(`CREATE USER 'mobius-admin-no-role'`)\n+\ttk.MustExec(`GRANT Select,Insert,Update,Delete,Create,Drop,Alter,Index,Create View,Show View ON issue24414.* TO 'ACL-mobius-admin'@'%'`)\n+\ttk.MustExec(`GRANT Select,Insert,Update,Delete,Create,Drop,Alter,Index,Create View,Show View ON issue24414.* TO 'mobius-admin-no-role'@'%'`)\n+\ttk.MustExec(`GRANT 'ACL-mobius-admin'@'%' to 'mobius-admin'@'%'`)\n+\ttk.MustExec(`SET DEFAULT ROLE ALL TO 'mobius-admin'`)\n+\t// create tables\n+\ttk.MustExec(`CREATE ALGORITHM = UNDEFINED DEFINER = 'mobius-admin'@'127.0.0.1' SQL SECURITY DEFINER VIEW test_view (col1 , col2 , col3) AS SELECT * from table1`)\n+\ttk.MustExec(`CREATE ALGORITHM = UNDEFINED DEFINER = 'mobius-admin-no-role'@'127.0.0.1' SQL SECURITY DEFINER VIEW test_view2 (col1 , col2 , col3) AS SELECT * from table1`)\n+\n+\t// all examples should work\n+\ttk.MustExec(\"select * from test_view\")\n+\ttk.MustExec(\"select * from test_view2\")\n+}\n",
+  "problem_statement": "Role-base User Created Non-retrievable View\n\n## Bug Report\r\n\r\nPlease answer these questions before submitting your issue. Thanks!\r\n\r\n### 1. Minimal reproduce step (Required)\r\n\r\n\r\n\r\ncreate table table1(\r\n`col1` int,\r\n`col2` int,\r\n`col3` int\r\n);\r\n\r\ninsert into table1 values (1,1,1),(2,2,2);\r\n\r\nCREATE ROLE 'ACL-mobius-admin';\r\n\r\nGRANT Select,Insert,Update,Delete,Create,Drop,Alter,Index,Create View,Show View ON test.* TO 'ACL-mobius-admin'@'%';\r\n\r\nCREATE USER 'mobius-admin';\r\n\r\nGRANT 'ACL-mobius-admin'@'%' to 'mobius-admin'@'%';\r\n\r\nSET DEFAULT ROLE ALL TO  'mobius-admin';\r\n\r\n##login as mobius-admin\r\nmysql -h 127.0.0.1 -P 4000 -u mobius-admin\r\n\r\nmysql> show databases;\r\n+--------------------+\r\n| Database           |\r\n+--------------------+\r\n| INFORMATION_SCHEMA |\r\n| test               |\r\n+--------------------+\r\n2 rows in set (0.01 sec)\r\n\r\nuse test;\r\n\r\nCREATE ALGORITHM = UNDEFINED DEFINER = `mobius-admin`@`127.0.0.1` SQL SECURITY DEFINER VIEW `test_view` (`col1` , `col2` , `col3`) AS SELECT * from table1;\r\n\r\nselect * from test_view;\r\nERROR 1356 (HY000): View 'test.test_view' references invalid table(s) or column(s) or function(s) or definer/invoker of view lack rights to use them\r\n\r\n### 2. What did you expect to see? (Required)\r\n\r\nmysql> select * from test_view;\r\n+------+------+------+\r\n| col1 | col2 | col3 |\r\n+------+------+------+\r\n|    1 |    1 |    1 |\r\n|    2 |    2 |    2 |\r\n+------+------+------+\r\n\r\n### 3. What did you see instead (Required)\r\n\r\nmysql> select * from test_view;\r\nERROR 1356 (HY000): View 'test.test_view' references invalid table(s) or column(s) or function(s) or definer/invoker of view lack rights to use them\r\n\r\n### 4. What is your TiDB version? (Required)\r\n\r\nv4.0.12",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

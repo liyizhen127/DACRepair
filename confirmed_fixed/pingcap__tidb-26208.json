@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-26208",
+  "base_commit": "a542c5868b8674147e2c7a4556d16219126adb88",
+  "patch": "diff --git a/executor/infoschema_reader.go b/executor/infoschema_reader.go\nindex abbfcd2b17ef1..15a4d66b0cf00 100644\n--- a/executor/infoschema_reader.go\n+++ b/executor/infoschema_reader.go\n@@ -1919,6 +1919,9 @@ func (e *memtableRetriever) dataForTableTiFlashReplica(ctx sessionctx.Context, s\n }\n \n func (e *memtableRetriever) setDataForStatementsSummaryEvicted(ctx sessionctx.Context) error {\n+\tif !hasPriv(ctx, mysql.ProcessPriv) {\n+\t\treturn plannercore.ErrSpecificAccessDenied.GenWithStackByArgs(\"PROCESS\")\n+\t}\n \te.rows = stmtsummary.StmtSummaryByDigestMap.ToEvictedCountDatum()\n \tswitch e.table.Name.O {\n \tcase infoschema.ClusterTableStatementsSummaryEvicted:\n",
+  "test_patch": "diff --git a/infoschema/tables_test.go b/infoschema/tables_test.go\nindex 717bbae8fb62c..a60a2677e4ec8 100644\n--- a/infoschema/tables_test.go\n+++ b/infoschema/tables_test.go\n@@ -1436,6 +1436,29 @@ func (s *testClusterTableSuite) TestStmtSummaryEvictedCountTable(c *C) {\n \t\tCheck(testkit.Rows(\"2\"))\n \t// TODO: Add more tests.\n \n+\ttk.MustExec(\"create user 'testuser'@'localhost'\")\n+\ttk.MustExec(\"create user 'testuser2'@'localhost'\")\n+\ttk.MustExec(\"grant process on *.* to 'testuser2'@'localhost'\")\n+\ttk1 := s.newTestKitWithRoot(c)\n+\tdefer tk1.MustExec(\"drop user 'testuser'@'localhost'\")\n+\tdefer tk1.MustExec(\"drop user 'testuser2'@'localhost'\")\n+\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{\n+\t\tUsername: \"testuser\",\n+\t\tHostname: \"localhost\",\n+\t}, nil, nil), Equals, true)\n+\n+\terr := tk.QueryToErr(\"select * from information_schema.CLUSTER_STATEMENTS_SUMMARY_EVICTED\")\n+\tc.Assert(err, NotNil)\n+\t// This error is come from cop(TiDB) fetch from rpc server.\n+\tc.Assert(err.Error(), Equals, \"other error: [planner:1227]Access denied; you need (at least one of) the PROCESS privilege(s) for this operation\")\n+\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{\n+\t\tUsername: \"testuser2\",\n+\t\tHostname: \"localhost\",\n+\t}, nil, nil), Equals, true)\n+\terr = tk.QueryToErr(\"select * from information_schema.CLUSTER_STATEMENTS_SUMMARY_EVICTED\")\n+\tc.Assert(err, IsNil)\n }\n \n func (s *testTableSuite) TestStmtSummaryTableOther(c *C) {\n",
+  "problem_statement": "TiDB exposes CLUSTER_STATEMENTS_SUMMARY_EVICTED without PROCESS privilege.\n\nA user lacking PROCESS privilege can query information_schema.CLUSTER_STATEMENTS_SUMMARY_EVICTED. This cluster-level statement summary information should be unavailable without PROCESS. A user holding the privilege should remain able to query it.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "infoschema/tables_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

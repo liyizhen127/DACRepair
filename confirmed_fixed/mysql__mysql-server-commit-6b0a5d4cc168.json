@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-6b0a5d4cc168",
+  "base_commit": "a5c0c6b47ce90ef48148c0dd52d1ac6bcd88089c",
+  "patch": "diff --git a/sql/auth/sql_authorization.cc b/sql/auth/sql_authorization.cc\nindex 843a197250e8..40e4d3f45155 100644\n--- a/sql/auth/sql_authorization.cc\n+++ b/sql/auth/sql_authorization.cc\n@@ -1634,7 +1634,7 @@ class Get_access_maps : public boost::default_bfs_visitor {\n     get_sp_access_map(&acl_user, m_sp_map, proc_priv_hash.get());\n \n     /* Add user function access */\n-    get_sp_access_map(&acl_user, m_sp_map, func_priv_hash.get());\n+    get_sp_access_map(&acl_user, m_func_map, func_priv_hash.get());\n \n     /* Add dynamic privileges */\n     get_dynamic_privileges(&acl_user, m_dynamic_acl);\n",
+  "test_patch": "diff --git a/mysql-test/r/roles-sp.result b/mysql-test/r/roles-sp.result\nindex cace6eb7770a..bca2e17f51cd 100644\n--- a/mysql-test/r/roles-sp.result\n+++ b/mysql-test/r/roles-sp.result\n@@ -89,6 +89,36 @@ GRANT EXECUTE, SELECT ON db1.* TO r1;\n ++ Positive test\n CALL db1.sp3();\n c1\n+############################################################\n+## Make sure function privileges are aggregated correctly ##\n+############################################################\n+CREATE SCHEMA world;\n+USE world;\n+CREATE PROCEDURE world.proc_empty() BEGIN END;\n+CREATE FUNCTION world.func_plusone(i int) RETURNS INT DETERMINISTIC RETURN i+1;\n+CREATE FUNCTION world.func_plustwo(i int) RETURNS INT DETERMINISTIC RETURN i+2;\n+CREATE ROLE r_worldrou;\n+GRANT EXECUTE ON PROCEDURE world.proc_empty TO r_worldrou;\n+GRANT EXECUTE ON FUNCTION world.func_plusone TO r_worldrou;\n+CREATE USER u_worldrou@localhost IDENTIFIED BY 'xxx' DEFAULT ROLE r_worldrou;\n+SHOW GRANTS FOR u_worldrou@localhost USING r_worldrou;\n+Grants for u_worldrou@localhost\n+GRANT USAGE ON *.* TO `u_worldrou`@`localhost`\n+GRANT EXECUTE ON PROCEDURE `world`.`proc_empty` TO `u_worldrou`@`localhost`\n+GRANT EXECUTE ON FUNCTION `world`.`func_plusone` TO `u_worldrou`@`localhost`\n+GRANT `r_worldrou`@`%` TO `u_worldrou`@`localhost`\n+SELECT CURRENT_ROLE();\n+CURRENT_ROLE()\n+`r_worldrou`@`%`\n+CALL world.proc_empty();\n+SELECT world.func_plusone(1);\n+world.func_plusone(1)\n+2\n+SELECT world.func_plustwo(1);\n+ERROR 42000: execute command denied to user 'u_worldrou'@'localhost' for routine 'world.func_plustwo'\n+DROP SCHEMA world;\n+DROP ROLE r_worldrou;\n+DROP USER u_worldrou@localhost;\n ++ Clean up\n DROP DATABASE db1;\n DROP DATABASE db2;\ndiff --git a/mysql-test/t/roles-sp.test b/mysql-test/t/roles-sp.test\nindex 19c5d12cf13a..3610bf2e3e08 100644\n--- a/mysql-test/t/roles-sp.test\n+++ b/mysql-test/t/roles-sp.test\n@@ -102,6 +102,35 @@ connection con1;\n --echo ++ Positive test\n CALL db1.sp3();\n \n+connection default;\n+--echo ############################################################\n+--echo ## Make sure function privileges are aggregated correctly ##\n+--echo ############################################################\n+CREATE SCHEMA world;\n+USE world;\n+CREATE PROCEDURE world.proc_empty() BEGIN END;\n+CREATE FUNCTION world.func_plusone(i int) RETURNS INT DETERMINISTIC RETURN i+1;\n+CREATE FUNCTION world.func_plustwo(i int) RETURNS INT DETERMINISTIC RETURN i+2;\n+CREATE ROLE r_worldrou;\n+GRANT EXECUTE ON PROCEDURE world.proc_empty TO r_worldrou;\n+GRANT EXECUTE ON FUNCTION world.func_plusone TO r_worldrou;\n+CREATE USER u_worldrou@localhost IDENTIFIED BY 'xxx' DEFAULT ROLE r_worldrou;\n+SHOW GRANTS FOR u_worldrou@localhost USING r_worldrou;\n+\n+connect(con_world,localhost,u_worldrou,xxx,world);\n+SELECT CURRENT_ROLE();\n+CALL world.proc_empty();\n+SELECT world.func_plusone(1);\n+--error ER_PROCACCESS_DENIED_ERROR\n+SELECT world.func_plustwo(1);\n+\n+connection default;\n+disconnect con_world;\n+DROP SCHEMA world;\n+DROP ROLE r_worldrou;\n+DROP USER u_worldrou@localhost;\n+\n+\n --echo ++ Clean up\n connection default;\n DROP DATABASE db1;\n",
+  "problem_statement": "Bug#30376231 EXECUTION OF FUNCTION FAILS WHEN GRANTED TO A ROLE\n\nWhen using roles, the EXECUTE FUNCTION privilege was treated as a\nEXECUTE PROCEDURE privilege during privilege aggregation phase. As a\nresult it wasn't possible to use EXECUTE FUNCTION privileges as a role\nprivilege.\n\nRB: 23133",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/roles-sp.result",
+      "mysql-test/t/roles-sp.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

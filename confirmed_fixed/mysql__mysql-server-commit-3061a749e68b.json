@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-3061a749e68b",
+  "base_commit": "2292480e795a02973b828a37f826c6e4e0192b69",
+  "patch": "diff --git a/sql/sql_view.cc b/sql/sql_view.cc\nindex e4f30f724431..f902a31c85d3 100644\n--- a/sql/sql_view.cc\n+++ b/sql/sql_view.cc\n@@ -89,7 +89,7 @@ bool mysql_create_view(THD *thd,\n   /*\n     Privilege check for view creation:\n     - user have CREATE VIEW privilege on view table\n-    - user have DELETE privilege in case of ALTER VIEW or CREATE OR REPLACE\n+    - user have DROP privilege in case of ALTER VIEW or CREATE OR REPLACE\n     VIEW\n     - have some (SELECT/UPDATE/INSERT/DELETE) privileges on columns of\n     underlying tables used on top of SELECT list (because it can be\n@@ -104,9 +104,9 @@ bool mysql_create_view(THD *thd,\n                     0, 0) ||\n        grant_option && check_grant(thd, CREATE_VIEW_ACL, view, 0, 1, 0)) ||\n       (mode != VIEW_CREATE_NEW &&\n-       (check_access(thd, DELETE_ACL, view->db, &view->grant.privilege,\n+       (check_access(thd, DROP_ACL, view->db, &view->grant.privilege,\n                      0, 0) ||\n-        grant_option && check_grant(thd, DELETE_ACL, view, 0, 1, 0))))\n+        grant_option && check_grant(thd, DROP_ACL, view, 0, 1, 0))))\n     DBUG_RETURN(TRUE);\n   for (sl= select_lex; sl; sl= sl->next_select())\n   {\n",
+  "test_patch": "diff --git a/mysql-test/r/view.result b/mysql-test/r/view.result\nindex c5fe4bf85655..4d32f2a22aff 100644\n--- a/mysql-test/r/view.result\n+++ b/mysql-test/r/view.result\n@@ -237,13 +237,17 @@ grant select on mysqltest.t1 to mysqltest_1@localhost;\n grant create view,select on test.* to mysqltest_1@localhost;\n create view v1 as select * from mysqltest.t1;\n alter view v1 as select * from mysqltest.t1;\n-ERROR 42000: DELETE command denied to user 'mysqltest_1'@'localhost' for table 'v1'\n+ERROR 42000: DROP command denied to user 'mysqltest_1'@'localhost' for table 'v1'\n create or replace view v1 as select * from mysqltest.t1;\n-ERROR 42000: DELETE command denied to user 'mysqltest_1'@'localhost' for table 'v1'\n+ERROR 42000: DROP command denied to user 'mysqltest_1'@'localhost' for table 'v1'\n create view mysqltest.v2  as select * from mysqltest.t1;\n ERROR 42000: CREATE VIEW command denied to user 'mysqltest_1'@'localhost' for table 'v2'\n create view v2 as select * from mysqltest.t2;\n ERROR 42000: ANY command denied to user 'mysqltest_1'@'localhost' for table 't2'\n+grant create view,drop,select on test.* to mysqltest_1@localhost;\n+use test;\n+alter view v1 as select * from mysqltest.t1;\n+create or replace view v1 as select * from mysqltest.t1;\n revoke all privileges on mysqltest.t1 from mysqltest_1@localhost;\n revoke all privileges on test.* from mysqltest_1@localhost;\n drop database mysqltest;\ndiff --git a/mysql-test/t/view.test b/mysql-test/t/view.test\nindex 7a05ebb0204b..69634b2098bc 100644\n--- a/mysql-test/t/view.test\n+++ b/mysql-test/t/view.test\n@@ -181,7 +181,7 @@ connect (user1,localhost,mysqltest_1,,test);\n connection user1;\n \n create view v1 as select * from mysqltest.t1;\n-# try to modify view without DELETE privilege on it\n+# try to modify view without DROP privilege on it\n -- error 1142\n alter view v1 as select * from mysqltest.t1;\n -- error 1142\n@@ -193,6 +193,16 @@ create view mysqltest.v2  as select * from mysqltest.t1;\n -- error 1142\n create view v2 as select * from mysqltest.t2;\n \n+connection root;\n+grant create view,drop,select on test.* to mysqltest_1@localhost;\n+\n+connection user1;\n+# following 'use' command is workaround of bug #9582 and should be removed\n+# when that bug will be fixed\n+use test;\n+alter view v1 as select * from mysqltest.t1;\n+create or replace view v1 as select * from mysqltest.t1;\n+\n connection root;\n revoke all privileges on mysqltest.t1 from mysqltest_1@localhost;\n revoke all privileges on test.* from mysqltest_1@localhost;\n",
+  "problem_statement": "fix of required privileges for altering view VIEW (DELETE->DROP) (BUG#9260)",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/view.result",
+      "mysql-test/t/view.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

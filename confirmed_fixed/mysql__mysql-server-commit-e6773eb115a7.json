@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-e6773eb115a7",
+  "base_commit": "9464d66ece6887e7faeb07bfb66eaa847178a9a5",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex ce92d91af4c6..ce4671e52632 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -6460,10 +6460,11 @@ class Kill_non_super_conn : public Do_THD_Impl {\n \n  public:\n   Kill_non_super_conn(THD *thd) : m_client_thd(thd) {\n-    DBUG_ASSERT(m_client_thd->security_context()->check_access(SUPER_ACL) ||\n-                m_client_thd->security_context()\n-                    ->has_global_grant(STRING_WITH_LEN(\"CONNECTION_ADMIN\"))\n-                    .first);\n+    DBUG_ASSERT(\n+        m_client_thd->security_context()->check_access(SUPER_ACL) ||\n+        m_client_thd->security_context()\n+            ->has_global_grant(STRING_WITH_LEN(\"SYSTEM_VARIABLES_ADMIN\"))\n+            .first);\n   }\n \n   virtual void operator()(THD *thd_to_kill) {\n",
+  "test_patch": "diff --git a/mysql-test/r/server_offline_debug.result b/mysql-test/r/server_offline_debug.result\nindex 63b86102c2d4..77ad1ca60d9a 100644\n--- a/mysql-test/r/server_offline_debug.result\n+++ b/mysql-test/r/server_offline_debug.result\n@@ -13,3 +13,22 @@ offline_mode\tON\n SET DEBUG_SYNC='RESET';\n # Restoring the original values.\n SET @@global.offline_mode = @global_saved_tmp;\n+#\n+# Bug #29849046: ASSERT AT SQL_PARSE.CC:6421 IF NON-PRIVILEGED USER\n+#   TRIES ENABLING OFFLINE_MODE\n+SET @global_saved_tmp =  @@global.offline_mode;\n+CREATE USER u1@localhost;\n+GRANT ALL PRIVILEGES ON *.* to u1@localhost;\n+REVOKE CONNECTION_ADMIN, SUPER ON *.* FROM u1@localhost;\n+Warnings:\n+Warning\t1287\tThe SUPER privilege identifier is deprecated\n+# in connection con_u1\n+# test: must not assert\n+set global offline_mode=on;\n+# Should have killed itself\n+SELECT 1 FROM DUAL;\n+ERROR HY000: MySQL server has gone away\n+in connection default\n+SET @@global.offline_mode = @global_saved_tmp;\n+DROP USER u1@localhost;\n+# End of 8.0 tests\ndiff --git a/mysql-test/t/server_offline_debug.test b/mysql-test/t/server_offline_debug.test\nindex 6e2369e0c252..565218bf473b 100644\n--- a/mysql-test/t/server_offline_debug.test\n+++ b/mysql-test/t/server_offline_debug.test\n@@ -26,3 +26,38 @@ SET DEBUG_SYNC='materialize_session_variable_array_THD_locked SIGNAL lock_thd_da\n SET DEBUG_SYNC='RESET';\n --echo # Restoring the original values.\n SET @@global.offline_mode = @global_saved_tmp;\n+\n+\n+--echo #\n+--echo # Bug #29849046: ASSERT AT SQL_PARSE.CC:6421 IF NON-PRIVILEGED USER\n+--echo #   TRIES ENABLING OFFLINE_MODE\n+\n+# Save the initial number of concurrent sessions\n+--source include/count_sessions.inc\n+# Save the global value to be used to restore the original value.\n+SET @global_saved_tmp =  @@global.offline_mode;\n+\n+CREATE USER u1@localhost;\n+GRANT ALL PRIVILEGES ON *.* to u1@localhost;\n+REVOKE CONNECTION_ADMIN, SUPER ON *.* FROM u1@localhost;\n+\n+connect(con_u1,localhost,u1,,test);\n+--echo # in connection con_u1\n+connection con_u1;\n+\n+--echo # test: must not assert\n+set global offline_mode=on;\n+\n+--echo # Should have killed itself\n+--error CR_SERVER_GONE_ERROR\n+SELECT 1 FROM DUAL;\n+\n+--echo in connection default\n+connection default;\n+disconnect con_u1;\n+SET @@global.offline_mode = @global_saved_tmp;\n+# Wait till all disconnects are completed\n+--source include/wait_until_count_sessions.inc\n+DROP USER u1@localhost;\n+\n+--echo # End of 8.0 tests\n",
+  "problem_statement": "Bug #29849046: ASSERT AT SQL_PARSE.CC:6421 IF NON-PRIVILEGED USER TRIES\nENABLING OFFLINE_MODE\nRB#22565\n\nThe assert was checking if the thread setting the variable has the\nprivileges needed to \"stay alive\" after it's being set.\n\nAnd that is not the case since setting requires SYSTEM_VARIABLES_ADMIN\nand \"staying alive\" requires CONNECTION_ADMIN.\n\nFixed the assert to check the same privileges the (absent) check\nfunction checks.\nTest case added.\n\nNo changes in the non-debug binaries.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/server_offline_debug.result",
+      "mysql-test/t/server_offline_debug.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

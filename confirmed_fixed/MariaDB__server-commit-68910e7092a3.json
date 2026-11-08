@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-68910e7092a3",
+  "base_commit": "d14c4c7874b0de1da452499967b8000a4ac83d67",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex ca1763209b92c..c6793241f7031 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -1050,9 +1050,6 @@ static bool fix_lex_user(THD *thd, LEX_USER *user)\n     return true;\n   }\n \n-  if (validate_password(user))\n-    return true;\n-\n   if (user->pwtext.length && !user->pwhash.length)\n   {\n     size_t scramble_length;\n@@ -2747,7 +2744,8 @@ bool check_change_password(THD *thd, LEX_USER *user)\n {\n   LEX_USER *real_user= get_current_user(thd, user);\n \n-  if (fix_and_copy_user(real_user, user, thd))\n+  if (fix_and_copy_user(real_user, user, thd) ||\n+      validate_password(real_user))\n     return true;\n \n   *user= *real_user;\n@@ -3461,6 +3459,10 @@ static int replace_user_table(THD *thd, TABLE *table, LEX_USER &combo,\n     store_record(table,record[1]);\t\t\t// Save copy for update\n   }\n \n+  if (!old_row_exists || combo.pwtext.length || combo.pwhash.length)\n+    if (validate_password(&combo))\n+      goto end;\n+\n   /* Update table columns with new privileges */\n \n   Field **tmp_field;\n",
+  "test_patch": "diff --git a/mysql-test/suite/plugins/r/simple_password_check.result b/mysql-test/suite/plugins/r/simple_password_check.result\nindex c74471a651aa1..c74b4e9999296 100644\n--- a/mysql-test/suite/plugins/r/simple_password_check.result\n+++ b/mysql-test/suite/plugins/r/simple_password_check.result\n@@ -79,6 +79,7 @@ ERROR HY000: Your password does not satisfy the current policy requirements\n grant select on *.* to `BarFoo1!` identified by 'FooBar1!';\n drop user `BarFoo1!`;\n create user foo1 identified by 'aA.12345';\n+grant select on *.* to foo1;\n drop user foo1;\n set global simple_password_check_digits=3;\n set global simple_password_check_letters_same_case=3;\n@@ -129,7 +130,7 @@ ERROR HY000: The MariaDB server is running with the --strict-password-validation\n create user foo2 identified with mysql_native_password using '';\n ERROR HY000: Your password does not satisfy the current policy requirements\n grant select on *.* to foo2 identified with mysql_old_password;\n-ERROR HY000: Your password does not satisfy the current policy requirements\n+ERROR 28000: Can't find any matching row in the user table\n update mysql.user set password='xxx' where user='foo1';\n set global strict_password_validation=0;\n set password for foo1 = '';\ndiff --git a/mysql-test/suite/plugins/t/simple_password_check.test b/mysql-test/suite/plugins/t/simple_password_check.test\nindex c31e31154e3d9..9854f93efe831 100644\n--- a/mysql-test/suite/plugins/t/simple_password_check.test\n+++ b/mysql-test/suite/plugins/t/simple_password_check.test\n@@ -26,6 +26,7 @@ grant select on *.* to `BarFoo1!` identified by 'FooBar1!';\n drop user `BarFoo1!`;\n \n create user foo1 identified by 'aA.12345';\n+grant select on *.* to foo1;\n drop user foo1;\n \n set global simple_password_check_digits=3;\n@@ -78,7 +79,7 @@ create user foo2 identified with mysql_native_password using '111111111111111111\n grant select on *.* to foo2 identified with mysql_old_password using '2222222222222222';\n --error ER_NOT_VALID_PASSWORD\n create user foo2 identified with mysql_native_password using '';\n---error ER_NOT_VALID_PASSWORD\n+--error ER_PASSWORD_NO_MATCH\n grant select on *.* to foo2 identified with mysql_old_password;\n \n # direct updates are not protected\n",
+  "problem_statement": "ERROR 1819 on grant statment for existing user\n\nFor statements:\n{code:sql}\nCREATE USER 'usergoodmixed'@'%' IDENTIFIED BY 'Hi123456';\nGRANT select  ON  performance_schema.users to  'usergoodmixed'@'%'\n{code}\nI get error :\n{noformat}\nERROR 1819 (HY000) at line 25 in file: 'password_complexity_test.sql': Your password does not satisfy the current policy requirements\n{noformat}\non the grant statement. \nI see a MySQL Bug: \nhttps://bugs.mysql.com/bug.php?id=70451\nIs this issue addressed with MariaDB?",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/plugins/r/simple_password_check.result",
+      "mysql-test/suite/plugins/t/simple_password_check.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

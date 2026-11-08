@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-8a2aefcd72d7",
+  "base_commit": "13d0b98c77d56c78d664f76d4bbdb0627d4e8861",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 9fd760220b69..2fe9e31d3638 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2836,9 +2836,14 @@ static int replace_user_table(THD *thd, TABLE *table, LEX_USER *combo,\n       goto end;\n     }\n \n-    if (!combo->uses_identified_by_clause &&\n-        !combo->uses_identified_with_clause &&\n-        !combo->uses_identified_by_password_clause)\n+    if ((!combo->uses_identified_by_clause &&\n+         !combo->uses_identified_with_clause &&\n+         !combo->uses_identified_by_password_clause) ||\n+        (combo->uses_identified_with_clause &&\n+         (!my_strcasecmp(system_charset_info, combo->plugin.str,\n+                         native_password_plugin_name.str) ||\n+          !my_strcasecmp(system_charset_info, combo->plugin.str,\n+                         old_password_plugin_name.str))))\n     {\n       if (check_password_policy(NULL))\n       {\n",
+  "test_patch": "diff --git a/mysql-test/r/validate_password_plugin.result b/mysql-test/r/validate_password_plugin.result\nindex 532cecc7dba3..aa9581b68ac6 100644\n--- a/mysql-test/r/validate_password_plugin.result\n+++ b/mysql-test/r/validate_password_plugin.result\n@@ -222,6 +222,18 @@ wait/synch/rwlock/validate/LOCK_dict_file\n # cleanup\n DROP USER 'user1'@'localhost', 'user2'@'localhost';\n SET @@global.validate_password_policy=DEFAULT;\n+#\n+# Bug#21616496: CREATE USER ACCEPTS PLUGIN AND PASSWORD HASH,\n+#               BUT IGNORES THE PASSWORD HASH\n+#\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_native_password';\n+ERROR HY000: Your password does not satisfy the current policy requirements\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_old_password';\n+ERROR HY000: Your password does not satisfy the current policy requirements\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_native_password' AS '*0D3CED9BEC10A777AEC23CCC353A8C08A633045E';\n+ERROR HY000: Your password does not satisfy the current policy requirements\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_old_password' AS '*0D3CED9BEC10A777AEC23CCC353A8C08A633045E';\n+ERROR HY000: Your password does not satisfy the current policy requirements\n # clean up after the test\n UNINSTALL PLUGIN validate_password;\n End of tests\ndiff --git a/mysql-test/t/validate_password_plugin.test b/mysql-test/t/validate_password_plugin.test\nindex 94a738314fcc..c1795e2f14a0 100644\n--- a/mysql-test/t/validate_password_plugin.test\n+++ b/mysql-test/t/validate_password_plugin.test\n@@ -264,6 +264,23 @@ SET @@global.validate_password_policy=DEFAULT;\n remove_file $MYSQLTEST_VARDIR/tmp/dictionary.txt;\n remove_file $MYSQLTEST_VARDIR/tmp/dictionary2.txt;\n \n+--echo #\n+--echo # Bug#21616496: CREATE USER ACCEPTS PLUGIN AND PASSWORD HASH,\n+--echo #               BUT IGNORES THE PASSWORD HASH\n+--echo #\n+\n+--error ER_NOT_VALID_PASSWORD\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_native_password';\n+\n+--error ER_NOT_VALID_PASSWORD\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_old_password';\n+\n+--error ER_NOT_VALID_PASSWORD\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_native_password' AS '*0D3CED9BEC10A777AEC23CCC353A8C08A633045E';\n+\n+--error ER_NOT_VALID_PASSWORD\n+CREATE USER 'user1'@'localhost' IDENTIFIED WITH 'mysql_old_password' AS '*0D3CED9BEC10A777AEC23CCC353A8C08A633045E';\n+\n --echo # clean up after the test\n UNINSTALL PLUGIN validate_password;\n \n",
+  "problem_statement": "Bug #21616496: CREATE USER ACCEPTS PLUGIN AND PASSWORD HASH,\n               BUT IGNORES THE PASSWORD HASH\n\nDescription: Creating a user with 'mysql_native_password'/\n'mysql_old_password' as plugin and using \"IDENTIFIED WITH\nplugin AS 'hash_string'\" as syntax, creates one without\na password.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/validate_password_plugin.result",
+      "mysql-test/t/validate_password_plugin.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-458a947f6c5e",
+  "base_commit": "5eb92715d1bcbf5fd91074640a8839aacee1b2f7",
+  "patch": "diff --git a/sql/slave.cc b/sql/slave.cc\nindex d2a7d397fa7e..36d8975a1270 100644\n--- a/sql/slave.cc\n+++ b/sql/slave.cc\n@@ -2682,7 +2682,7 @@ static int exec_relay_log_event(THD* thd, RELAY_LOG_INFO* rli)\n       rli->is_until_satisfied()) \n   {\n     sql_print_error(\"Slave SQL thread stopped because it reached its\"\n-                    \" UNTIL position\");\n+                    \" UNTIL position %ld\", (long) rli->until_pos());\n     /* \n       Setting abort_slave flag because we do not want additional message about\n       error in query execution to be printed.\ndiff --git a/sql/slave.h b/sql/slave.h\nindex e42b93a47ef3..d92c44dd2bae 100644\n--- a/sql/slave.h\n+++ b/sql/slave.h\n@@ -324,6 +324,11 @@ typedef struct st_relay_log_info\n \n   /* Check if UNTIL condition is satisfied. See slave.cc for more. */\n   bool is_until_satisfied();\n+  inline ulonglong until_pos()\n+  {\n+    return ((until_condition == UNTIL_MASTER_POS) ? group_master_log_pos :\n+\t    group_relay_log_pos);\n+  }\n } RELAY_LOG_INFO;\n \n \ndiff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 01820917ce98..3f70cc1323b7 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2543,7 +2543,7 @@ my_bool grant_init(THD *org_thd)\n   do\n   {\n     GRANT_TABLE *mem_check;\n-    if (!(mem_check=new GRANT_TABLE(t_table,c_table)) || mem_check->ok())\n+    if (!(mem_check=new GRANT_TABLE(t_table,c_table)) || !mem_check->ok())\n     {\n       /* This could only happen if we are out memory */\n       grant_option= FALSE;\t\t\t/* purecov: deadcode */\n",
+  "test_patch": "diff --git a/mysql-test/r/rpl_until.result b/mysql-test/r/rpl_until.result\nindex c179351551d9..82b1ed233ecd 100644\n--- a/mysql-test/r/rpl_until.result\n+++ b/mysql-test/r/rpl_until.result\n@@ -31,7 +31,7 @@ n\n 4\n show slave status;\n Slave_IO_State\tMaster_Host\tMaster_User\tMaster_Port\tConnect_Retry\tMaster_Log_File\tRead_Master_Log_Pos\tRelay_Log_File\tRelay_Log_Pos\tRelay_Master_Log_File\tSlave_IO_Running\tSlave_SQL_Running\tReplicate_Do_DB\tReplicate_Ignore_DB\tReplicate_Do_Table\tReplicate_Ignore_Table\tReplicate_Wild_Do_Table\tReplicate_Wild_Ignore_Table\tLast_Errno\tLast_Error\tSkip_Counter\tExec_Master_Log_Pos\tRelay_Log_Space\tUntil_Condition\tUntil_Log_File\tUntil_Log_Pos\tMaster_SSL_Allowed\tMaster_SSL_CA_File\tMaster_SSL_CA_Path\tMaster_SSL_Cert\tMaster_SSL_Cipher\tMaster_SSL_Key\tSeconds_Behind_Master\n-#\t127.0.0.1\troot\tMASTER_MYPORT\t1\tmaster-bin.000001\t561\tslave-relay-bin.000002\t332\tmaster-bin.000001\tYes\tNo\t\t\t\t\t\t\t0\t\t0\t244\t649\tMaster\tmaster-bin.000001\t244\tNo\t\t\t\t\t\t#\n+#\t127.0.0.1\troot\tMASTER_MYPORT\t1\tmaster-bin.000001\t561\tslave-relay-bin.000002\t#\tmaster-bin.000001\tYes\tNo\t\t\t\t\t\t\t0\t\t0\t244\t#\tMaster\tmaster-bin.000001\t244\tNo\t\t\t\t\t\t#\n start slave until master_log_file='master-no-such-bin.000001', master_log_pos=291;\n select * from t1;\n n\ndiff --git a/mysql-test/t/rpl_until.test b/mysql-test/t/rpl_until.test\nindex 9bc4ea4e7b1a..4508fbea194e 100644\n--- a/mysql-test/t/rpl_until.test\n+++ b/mysql-test/t/rpl_until.test\n@@ -29,7 +29,7 @@ sleep 2;\n # here table should be still not deleted\n select * from t1;\n --replace_result $MASTER_MYPORT MASTER_MYPORT\n---replace_column 1 # 33 #\n+--replace_column 1 # 9 # 23 # 33 #\n show slave status;\n \n # this should fail right after start\n@@ -59,9 +59,9 @@ stop slave;\n \n # this should stop immideately\n start slave until master_log_file='master-bin.000001', master_log_pos=561;\n-sleep 2;\n+--real-sleep 2;\n # here the sql slave thread should be stopped\n---replace_result $MASTER_MYPORT MASTER_MYPORT\n+--replace_result $MASTER_MYPORT MASTER_MYPORT bin.000005 bin.000004 bin.000006 bin.000004 bin.000007 bin.000004\n --replace_column 1 # 9 # 23 # 33 #\n show slave status;\n \n",
+  "problem_statement": "Fixed bug in table level privilege GRANT handling. (Bug #2178)\nPortability fixes",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/rpl_until.result",
+      "mysql-test/t/rpl_until.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

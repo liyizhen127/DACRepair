@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-32880072357e",
+  "base_commit": "7f896917b8e7bb5a2d2b35a209a1ed18a01f4a2a",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex df615383ec31..34aa0984798f 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -3889,12 +3889,13 @@ void fill_effective_table_privileges(THD *thd, GRANT_INFO *grant,\n   /* global privileges */\n   grant->privilege= thd->master_access;\n \n+  /* db privileges */\n+  grant->privilege|= acl_get(thd->host, thd->ip, thd->priv_user, db, 0);\n+\n   /* if privileges ignored (--skip-grant-tables) above is enough */\n   if (!grant_option)\n     return;\n \n-  /* db privileges */\n-  grant->privilege|= acl_get(thd->host, thd->ip, thd->priv_user, db, 0);\n   /* table privileges */\n   if (grant->version != grant_version)\n   {\n",
+  "test_patch": "diff --git a/mysql-test/r/view.result b/mysql-test/r/view.result\nindex 9c89de4259ec..caec33eb59bf 100644\n--- a/mysql-test/r/view.result\n+++ b/mysql-test/r/view.result\n@@ -1628,3 +1628,10 @@ Field 3,'Field 4|\n |Field 6|\t| 'Field 7'|\n drop view v1;\n drop table t1;\n+create database mysqltest;\n+create table mysqltest.t1 (a int);\n+grant all privileges on mysqltest.* to mysqltest_1@localhost;\n+use mysqltest;\n+create view v1 as select * from t1;\n+revoke all privileges on mysqltest.* from mysqltest_1@localhost;\n+drop database mysqltest;\ndiff --git a/mysql-test/t/view.test b/mysql-test/t/view.test\nindex 8e38b5616f8a..a63086acd717 100644\n--- a/mysql-test/t/view.test\n+++ b/mysql-test/t/view.test\n@@ -1554,3 +1554,21 @@ select concat('|',a,'|'), concat('|',b,'|') from v1;\n drop view v1;\n drop table t1;\n \n+#\n+# user with global DB privileges\n+#\n+connection root;\n+--disable_warnings\n+create database mysqltest;\n+--enable_warnings\n+create table mysqltest.t1 (a int);\n+grant all privileges on mysqltest.* to mysqltest_1@localhost;\n+\n+connection user1;\n+use mysqltest;\n+create view v1 as select * from t1;\n+\n+\n+connection root;\n+revoke all privileges on mysqltest.* from mysqltest_1@localhost;\n+drop database mysqltest;\n",
+  "problem_statement": "fixed db/user privileges getting (BUG#5976)",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/view.result",
+      "mysql-test/t/view.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

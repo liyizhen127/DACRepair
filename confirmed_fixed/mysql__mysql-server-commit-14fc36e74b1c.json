@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-14fc36e74b1c",
+  "base_commit": "1793de836cae257381e4424c15c3795f78921faf",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex da41aca7582c..bc64ad2353d0 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -406,11 +406,10 @@ static LEX_STRING old_password_plugin_name= {\n   C_STRING_WITH_LEN(\"mysql_old_password\")\n };\n \n-#if defined(HAVE_OPENSSL)\n LEX_STRING sha256_password_plugin_name= {\n   C_STRING_WITH_LEN(\"sha256_password\")\n };\n-#endif\n+\n static LEX_STRING validate_password_plugin_name= {\n   C_STRING_WITH_LEN(\"validate_password\")\n };\n@@ -10761,6 +10760,15 @@ acl_authenticate(THD *thd, uint com_change_user_pkt_len)\n                               mpvio.acl_user->plugin.str));\n     auth_plugin_name= mpvio.acl_user->plugin;\n     res= do_auth_once(thd, &auth_plugin_name, &mpvio);\n+    if (res <= CR_OK)\n+    {\n+      if (auth_plugin_name.str == native_password_plugin_name.str)\n+        thd->variables.old_passwords= 0;\n+      if (auth_plugin_name.str == old_password_plugin_name.str)\n+        thd->variables.old_passwords= 1;\n+      if (auth_plugin_name.str == sha256_password_plugin_name.str)\n+        thd->variables.old_passwords= 2;\n+    }\n   }\n \n   server_mpvio_update_thd(thd, &mpvio);\n",
+  "test_patch": "diff --git a/mysql-test/r/plugin_auth_sha256_server_default_tls.result b/mysql-test/r/plugin_auth_sha256_server_default_tls.result\nindex d9292ba6d63d..4762e8071e22 100644\n--- a/mysql-test/r/plugin_auth_sha256_server_default_tls.result\n+++ b/mysql-test/r/plugin_auth_sha256_server_default_tls.result\n@@ -1,4 +1,5 @@\n CREATE USER 'kristofer';\n+SET old_passwords=2;\n SET PASSWORD FOR 'kristofer'=PASSWORD('secret');\n SELECT user, plugin FROM mysql.user;\n user\tplugin\ndiff --git a/mysql-test/t/plugin_auth_sha256_server_default_tls.test b/mysql-test/t/plugin_auth_sha256_server_default_tls.test\nindex d1bd5446788b..8e5b7d7547a6 100644\n--- a/mysql-test/t/plugin_auth_sha256_server_default_tls.test\n+++ b/mysql-test/t/plugin_auth_sha256_server_default_tls.test\n@@ -2,6 +2,9 @@\n --source include/have_ssl.inc\n \n CREATE USER 'kristofer';\n+# Bootstrap did not follow the startup variables while creating root account,\n+# hence need to change old_passwords variable.\n+SET old_passwords=2;\n SET PASSWORD FOR 'kristofer'=PASSWORD('secret');\n SELECT user, plugin FROM mysql.user;\n connect(con1,localhost,kristofer,secret,,,,SSL);\n",
+  "problem_statement": "BUG#15892194 NO WAY TO DETERMINE REQUIRED PASSWORD HASHING\n             TYPE FOR EXPIRED PASSWORD RESET\n\nIssue: On the expiry of sha256 password, the client cannot\n       reset it unless it changes the default password\n       hashing style. Currently the default password hashing\n       kind doesn't match the one it should be to reset the\n       password.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/plugin_auth_sha256_server_default_tls.result",
+      "mysql-test/t/plugin_auth_sha256_server_default_tls.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

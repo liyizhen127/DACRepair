@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-60fc91570b04",
+  "base_commit": "730bea634f4ed85b20fa6fe0890c6b68e9e29537",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 064aa6dc0446..abeacd49c1fd 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -192,7 +192,7 @@ static void update_hostname(acl_host_and_ip *host, const char *hostname);\n static bool compare_hostname(const acl_host_and_ip *host,const char *hostname,\n \t\t\t     const char *ip);\n static my_bool acl_load(THD *thd, TABLE_LIST *tables);\n-static my_bool grant_load(TABLE_LIST *tables);\n+static my_bool grant_load(THD *thd, TABLE_LIST *tables);\n \n /*\n   Convert scrambled password to binary form, according to scramble type, \n@@ -314,8 +314,11 @@ static my_bool acl_load(THD *thd, TABLE_LIST *tables)\n   bool check_no_resolve= specialflag & SPECIAL_NO_RESOLVE;\n   char tmp_name[NAME_LEN+1];\n   int password_length;\n+  ulong old_sql_mode= thd->variables.sql_mode;\n   DBUG_ENTER(\"acl_load\");\n \n+  thd->variables.sql_mode&= ~MODE_PAD_CHAR_TO_FULL_LENGTH;\n+\n   grant_version++; /* Privileges updated */\n \n   acl_cache->clear(1);\t\t\t\t// Clear locked hostname cache\n@@ -622,6 +625,7 @@ static my_bool acl_load(THD *thd, TABLE_LIST *tables)\n   return_val=0;\n \n end:\n+  thd->variables.sql_mode= old_sql_mode;\n   DBUG_RETURN(return_val);\n }\n \n@@ -3613,7 +3617,7 @@ static my_bool grant_load_procs_priv(TABLE *p_table)\n     @retval TRUE Error\n */\n \n-static my_bool grant_load(TABLE_LIST *tables)\n+static my_bool grant_load(THD *thd, TABLE_LIST *tables)\n {\n   MEM_ROOT *memex_ptr;\n   my_bool return_val= 1;\n@@ -3621,7 +3625,11 @@ static my_bool grant_load(TABLE_LIST *tables)\n   bool check_no_resolve= specialflag & SPECIAL_NO_RESOLVE;\n   MEM_ROOT **save_mem_root_ptr= my_pthread_getspecific_ptr(MEM_ROOT**,\n                                                            THR_MALLOC);\n+  ulong old_sql_mode= thd->variables.sql_mode;\n   DBUG_ENTER(\"grant_load\");\n+\n+  thd->variables.sql_mode&= ~MODE_PAD_CHAR_TO_FULL_LENGTH;\n+\n   (void) hash_init(&column_priv_hash,system_charset_info,\n                    0,0,0, (hash_get_key) get_grant_table,\n                    (hash_free_key) free_grant_table,0);\n@@ -3673,6 +3681,7 @@ static my_bool grant_load(TABLE_LIST *tables)\n   return_val=0;\t\t\t\t\t// Return ok\n \n end_unlock:\n+  thd->variables.sql_mode= old_sql_mode;\n   t_table->file->ha_index_end();\n   my_pthread_setspecific_ptr(THR_MALLOC, save_mem_root_ptr);\n   DBUG_RETURN(return_val);\n@@ -3786,7 +3795,7 @@ my_bool grant_reload(THD *thd)\n   old_mem= memex;\n   init_sql_alloc(&memex, ACL_ALLOC_BLOCK_SIZE, 0);\n \n-  if ((return_val= grant_load(tables)))\n+  if ((return_val= grant_load(thd, tables)))\n   {\t\t\t\t\t\t// Error. Revert to old hash\n     DBUG_PRINT(\"error\",(\"Reverting to old privileges\"));\n     grant_free();\t\t\t\t/* purecov: deadcode */\n",
+  "test_patch": "diff --git a/mysql-test/r/sql_mode.result b/mysql-test/r/sql_mode.result\nindex 2b34ff8c0214..401340f204ca 100644\n--- a/mysql-test/r/sql_mode.result\n+++ b/mysql-test/r/sql_mode.result\n@@ -496,3 +496,13 @@ xb\tx\n xcx\n drop table t1;\n SET @@SQL_MODE=@OLD_SQL_MODE;\n+create user mysqltest_32753@localhost;\n+set @OLD_SQL_MODE=@@SESSION.SQL_MODE;\n+set session sql_mode='PAD_CHAR_TO_FULL_LENGTH';\n+flush privileges;\n+select current_user();\n+current_user()\n+mysqltest_32753@localhost\n+set session sql_mode=@OLD_SQL_MODE;\n+flush privileges;\n+drop user mysqltest_32753@localhost;\ndiff --git a/mysql-test/t/sql_mode.test b/mysql-test/t/sql_mode.test\nindex 7a9036c86211..acc9cc7979e8 100644\n--- a/mysql-test/t/sql_mode.test\n+++ b/mysql-test/t/sql_mode.test\n@@ -279,3 +279,32 @@ select concat('x',b,'x') from t1;\n drop table t1;\n \n SET @@SQL_MODE=@OLD_SQL_MODE;\n+\n+\n+#\n+# Bug #32753: PAD_CHAR_TO_FULL_LENGTH is not documented and interferes\n+#             with grant tables\n+#\n+\n+create user mysqltest_32753@localhost;\n+\n+# try to make the user-table space-padded\n+--connection default\n+set @OLD_SQL_MODE=@@SESSION.SQL_MODE;\n+set session sql_mode='PAD_CHAR_TO_FULL_LENGTH';\n+flush privileges;\n+\n+# if user-table is affected by PAD_CHAR_TO_FULL_LENGTH, our connect will fail\n+# --error 1045\n+connect (user_32753,localhost,mysqltest_32753,,test,$MASTER_MYPORT,$MASTER_MYSOCK);\n+select current_user();\n+\n+# clean up\n+--connection default\n+set session sql_mode=@OLD_SQL_MODE;\n+flush privileges;\n+\n+--disconnect user_32753\n+\n+--connection default\n+drop user mysqltest_32753@localhost;\n",
+  "problem_statement": "Bug#32753: PAD_CHAR_TO_FULL_LENGTH is not documented and interferes with grant tables\n\nSQL-mode PAD_CHAR_TO_FULL_LENGTH affected mysqld's user-table too. If\nenabled, user-name and host were space-padded and no longer matched\nthe login-data of incoming connexions.\n\nPatch disregards pad-flag while loading privileges so ability to log\nin does not depend on SQL-mode.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/sql_mode.result",
+      "mysql-test/t/sql_mode.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

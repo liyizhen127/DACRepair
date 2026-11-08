@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-e6ec9b7388b9",
+  "base_commit": "a5630b37b79d9dd4ed7cbfb3e9f6da7f1d90c9e5",
+  "patch": "diff --git a/sql/auth/sql_authorization.cc b/sql/auth/sql_authorization.cc\nindex 81699d94b27f..d4a535be13a9 100644\n--- a/sql/auth/sql_authorization.cc\n+++ b/sql/auth/sql_authorization.cc\n@@ -5194,8 +5194,8 @@ bool mysql_revoke_all(THD *thd,  List <LEX_USER> &list)\n     }\n \n     Update_dynamic_privilege_table update_table(thd, dynpriv_table);\n-    if ((result= revoke_all_dynamic_privileges(tmp_lex_user->user,\n-                                               tmp_lex_user->host,\n+    if ((result= revoke_all_dynamic_privileges(lex_user->user,\n+                                               lex_user->host,\n                                                update_table)))\n     {\n       break;\n",
+  "test_patch": "diff --git a/mysql-test/r/grant_dynamic.result b/mysql-test/r/grant_dynamic.result\nindex 0385c1f55cd6..dd865eea189f 100644\n--- a/mysql-test/r/grant_dynamic.result\n+++ b/mysql-test/r/grant_dynamic.result\n@@ -769,3 +769,15 @@ DROP USER u1;\n DROP USER u2;\n DROP USER u3;\n # End of test for WL#7194\n+# REVOKE ALL IS NOT REVOKING ALL PRIVILEGE WHEN CURRENT_USER() IS USED\n+CREATE USER u1@localhost IDENTIFIED BY 'foo';\n+GRANT ALL ON *.* TO u1@localhost;\n+SHOW GRANTS;\n+Grants for u1@localhost\n+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN, PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES, LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER, CREATE TABLESPACE, CREATE ROLE, DROP ROLE ON *.* TO `u1`@`localhost`\n+GRANT BACKUP_ADMIN,BINLOG_ADMIN,CONNECTION_ADMIN,ENCRYPTION_KEY_ADMIN,GROUP_REPLICATION_ADMIN,PERSIST_RO_VARIABLES_ADMIN,REPLICATION_SLAVE_ADMIN,RESOURCE_GROUP_ADMIN,RESOURCE_GROUP_USER,ROLE_ADMIN,SET_USER_ID,SYSTEM_VARIABLES_ADMIN,XA_RECOVER_ADMIN ON *.* TO `u1`@`localhost`\n+REVOKE ALL ON *.* FROM CURRENT_USER();\n+SHOW GRANTS;\n+Grants for u1@localhost\n+GRANT USAGE ON *.* TO `u1`@`localhost`\n+DROP USER u1@localhost;\ndiff --git a/mysql-test/t/grant_dynamic.test b/mysql-test/t/grant_dynamic.test\nindex f96097ea793b..498c96641904 100644\n--- a/mysql-test/t/grant_dynamic.test\n+++ b/mysql-test/t/grant_dynamic.test\n@@ -520,5 +520,17 @@ GRANT XA_RECOVER_ADMIN ON *.* TO u3;\n DROP USER u1;\n DROP USER u2;\n DROP USER u3;\n-\n --echo # End of test for WL#7194\n+\n+--echo # REVOKE ALL IS NOT REVOKING ALL PRIVILEGE WHEN CURRENT_USER() IS USED\n+CREATE USER u1@localhost IDENTIFIED BY 'foo';\n+GRANT ALL ON *.* TO u1@localhost;\n+connect (con2,localhost,u1,foo,,);\n+connection con2;\n+SHOW GRANTS;\n+REVOKE ALL ON *.* FROM CURRENT_USER();\n+SHOW GRANTS;\n+connection default;\n+disconnect con2;\n+DROP USER u1@localhost;\n+\n",
+  "problem_statement": "Bug#25658967 REVOKE ALL IS NOT REVOKING ALL PRIVILEGE WHEN CURRENT_USER() IS USED\n\nThe REVOKE statement failed to revoke dynamic privileges if the\ntarget user was specified as CURRENT_USER().\nCURRENT_USER() is not evaluated by the parser. Instead evaluation\nmust happen at runtime for each and every statement which use this\nfunction which wasn't the case for the code related to revolval of\nall dynamic privileges.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant_dynamic.result",
+      "mysql-test/t/grant_dynamic.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

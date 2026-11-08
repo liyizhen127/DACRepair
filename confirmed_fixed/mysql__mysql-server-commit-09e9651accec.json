@@ -1,0 +1,27 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-09e9651accec",
+  "base_commit": "29593da2f60bda6f34a89654895b6b4df9d67054",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 4a970b6f018b..51768922f6dd 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -301,6 +301,12 @@ my_bool acl_init(THD *org_thd, bool dont_read_acl_tables)\n     {\n       uint next_field;\n       user.access= get_access(table,3,&next_field) & GLOBAL_ACLS;\n+      /*\n+        if it is pre 5.0.1 privilege table then map CREATE privilege on\n+        CREATE VIEW & SHOW VIEW privileges\n+      */\n+      if (table->fields <= 31 && (user.access & CREATE_ACL))\n+        user.access|= (CREATE_VIEW_ACL | SHOW_VIEW_ACL);\n       user.sort= get_sort(2,user.host.hostname,user.user);\n       user.hostname_length= (user.host.hostname ?\n                              (uint) strlen(user.host.hostname) : 0);\n",
+  "test_patch": "diff --git a/mysql-test/r/ps_1general.result b/mysql-test/r/ps_1general.result\nindex f49395923634..91028d7531c5 100644\n--- a/mysql-test/r/ps_1general.result\n+++ b/mysql-test/r/ps_1general.result\n@@ -252,8 +252,8 @@ mysql\n test\n prepare stmt4 from ' show tables from test like ''t2%'' ';\n execute stmt4;\n-Tables_in_test (t2%)\ttable_type\n-t2\tBASE TABLE\n+Tables_in_test (t2%)\n+t2\n prepare stmt4 from ' show columns from t2 from test like ''a%'' ';\n execute stmt4;\n Field\tType\tNull\tKey\tDefault\tExtra\n",
+  "problem_statement": "fix privileges for old style privileges tables on fly (as it do mysql_fix_privilege_tables dut if we have not it run)\nfixed forgoten test",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/ps_1general.result"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-32664",
+  "base_commit": "9f4dd6d92283fdf52a135b0b730845002d735444",
+  "patch": "diff --git a/util/sem/sem.go b/util/sem/sem.go\nindex cd35b5f4bd71b..d8aa8f9af84d2 100644\n--- a/util/sem/sem.go\n+++ b/util/sem/sem.go\n@@ -155,7 +155,9 @@ func IsInvisibleSysVar(varNameInLower string) bool {\n \t\tvariable.TiDBMemoryUsageAlarmRatio,\n \t\tvariable.TiDBRedactLog,\n \t\tvariable.TiDBRestrictedReadOnly,\n-\t\tvariable.TiDBSlowLogMasking:\n+\t\tvariable.TiDBSlowLogMasking,\n+\t\tvariable.TiDBTopSQLMaxTimeSeriesCount,\n+\t\tvariable.TiDBTopSQLMaxMetaCount:\n \t\treturn true\n \t}\n \treturn false\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex b8bf15bcf2c72..54c6f22e38d1a 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -1994,16 +1994,22 @@ func TestSecurityEnhancedModeSysVars(t *testing.T) {\n \n \ttk.MustQuery(`SHOW VARIABLES LIKE 'tidb_force_priority'`).Check(testkit.Rows())\n \ttk.MustQuery(`SHOW GLOBAL VARIABLES LIKE 'tidb_enable_telemetry'`).Check(testkit.Rows())\n+\ttk.MustQuery(`SHOW GLOBAL VARIABLES LIKE 'tidb_top_sql_max_time_series_count'`).Check(testkit.Rows())\n+\ttk.MustQuery(`SHOW GLOBAL VARIABLES LIKE 'tidb_top_sql_max_meta_count'`).Check(testkit.Rows())\n \n \t_, err := tk.Exec(\"SET tidb_force_priority = 'NO_PRIORITY'\")\n \trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n \t_, err = tk.Exec(\"SET GLOBAL tidb_enable_telemetry = OFF\")\n \trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n+\t_, err = tk.Exec(\"SET GLOBAL tidb_top_sql_max_time_series_count = 100\")\n+\trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n \n \t_, err = tk.Exec(\"SELECT @@session.tidb_force_priority\")\n \trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n \t_, err = tk.Exec(\"SELECT @@global.tidb_enable_telemetry\")\n \trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n+\t_, err = tk.Exec(\"SELECT @@global.tidb_top_sql_max_time_series_count\")\n+\trequire.EqualError(t, err, \"[planner:1227]Access denied; you need (at least one of) the RESTRICTED_VARIABLES_ADMIN privilege(s) for this operation\")\n \n \ttk.Session().Auth(&auth.UserIdentity{\n \t\tUsername:     \"svroot2\",\ndiff --git a/util/sem/sem_test.go b/util/sem/sem_test.go\nindex ff11c3fd47eb9..709fb9add991d 100644\n--- a/util/sem/sem_test.go\n+++ b/util/sem/sem_test.go\n@@ -103,4 +103,6 @@ func TestIsInvisibleSysVar(t *testing.T) {\n \tassert.True(IsInvisibleSysVar(variable.TiDBRowFormatVersion))\n \tassert.True(IsInvisibleSysVar(variable.TiDBRedactLog))\n \tassert.True(IsInvisibleSysVar(variable.TiDBSlowLogMasking))\n+\tassert.True(IsInvisibleSysVar(variable.TiDBTopSQLMaxTimeSeriesCount))\n+\tassert.True(IsInvisibleSysVar(variable.TiDBTopSQLMaxTimeSeriesCount))\n }\n",
+  "problem_statement": "topsql: modify/show topsql variable should check RESTRICTED_VARIABLES_ADMIN privilege when sem is enabled\n\n## Bug Report\r\n\r\nPlease answer these questions before submitting your issue. Thanks!\r\n\r\n### 1. Minimal reproduce step (Required)\r\n\r\nWhen TiDB `enable-sem` is true, modify the following variable need check `RESTRICTED_VARIABLES_ADMIN` privilege.\r\n\r\n```sql\r\ntidb_top_sql_max_time_series_count\r\ntidb_top_sql_max_meta_count\r\n``` \r\n\r\n\r\n### 4. What is your TiDB version? (Required)\r\n\r\n```\r\ne8be77848d8586ad25b61f8b522b581c3b76760f\r\n```",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go",
+      "util/sem/sem_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

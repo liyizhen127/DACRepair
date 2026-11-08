@@ -1,0 +1,28 @@
+{
+  "repo": "ClickHouse/ClickHouse",
+  "instance_id": "ClickHouse__ClickHouse-103315",
+  "base_commit": "08b7e60f47493c00a6cfe1cd3dbd866436957bb0",
+  "patch": "diff --git a/src/Interpreters/Access/InterpreterGrantQuery.cpp b/src/Interpreters/Access/InterpreterGrantQuery.cpp\nindex ef53e3fe1d8b7..fb99759f76586 100644\n--- a/src/Interpreters/Access/InterpreterGrantQuery.cpp\n+++ b/src/Interpreters/Access/InterpreterGrantQuery.cpp\n@@ -450,6 +450,19 @@ BlockIO InterpreterGrantQuery::execute()\n     RolesOrUsersSet roles_to_revoke;\n     collectRolesToGrantOrRevoke(access_control, query, roles_to_grant, roles_to_revoke);\n \n+    /// A role cannot be granted to itself.\n+    for (const auto & grantee_id : grantees)\n+    {\n+        if (std::find(roles_to_grant.begin(), roles_to_grant.end(), grantee_id) != roles_to_grant.end())\n+        {\n+            auto entity = access_control.tryRead(grantee_id);\n+            throw Exception(\n+                ErrorCodes::BAD_ARGUMENTS,\n+                \"Cannot grant role '{}' to itself\",\n+                entity ? entity->getName() : String{});\n+        }\n+    }\n+\n     /// Replacing empty database with the default. This step must be done before replication to avoid privilege escalation.\n     String current_database = getContext()->getCurrentDatabase();\n     elements_to_grant.replaceEmptyDatabase(current_database);\n",
+  "test_patch": "diff --git a/tests/queries/0_stateless/04109_grant_role_to_itself.reference b/tests/queries/0_stateless/04109_grant_role_to_itself.reference\nnew file mode 100644\nindex 0000000000000..f060a3bdfeef2\n--- /dev/null\n+++ b/tests/queries/0_stateless/04109_grant_role_to_itself.reference\n@@ -0,0 +1,2 @@\n+BAD_ARGUMENTS\n+BAD_ARGUMENTS\ndiff --git a/tests/queries/0_stateless/04109_grant_role_to_itself.sh b/tests/queries/0_stateless/04109_grant_role_to_itself.sh\nnew file mode 100755\nindex 0000000000000..77709b4c2c7fc\n--- /dev/null\n+++ b/tests/queries/0_stateless/04109_grant_role_to_itself.sh\n@@ -0,0 +1,30 @@\n+#!/usr/bin/env bash\n+# Regression for https://github.com/ClickHouse/ClickHouse/issues/101357\n+# GRANT role TO itself must be rejected with BAD_ARGUMENTS (code 36).\n+# Roles are global in ClickHouse, so suffix names with ${CLICKHOUSE_DATABASE}\n+# to avoid collisions between parallel test workers.\n+\n+CURDIR=$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\n+# shellcheck source=../shell_config.sh\n+. \"$CURDIR\"/../shell_config.sh\n+\n+role_a=\"test_role_04109_a_${CLICKHOUSE_DATABASE}\"\n+role_b=\"test_role_04109_b_${CLICKHOUSE_DATABASE}\"\n+\n+$CLICKHOUSE_CLIENT -q \"DROP ROLE IF EXISTS ${role_a}, ${role_b}\"\n+$CLICKHOUSE_CLIENT -q \"CREATE ROLE ${role_a}\"\n+$CLICKHOUSE_CLIENT -q \"CREATE ROLE ${role_b}\"\n+\n+# Direct self-grant.\n+$CLICKHOUSE_CLIENT -q \"GRANT ${role_a} TO ${role_a}\" 2>&1 | grep -m1 -o 'BAD_ARGUMENTS'\n+\n+# Multi-role grant with one self-grant must still be rejected.\n+$CLICKHOUSE_CLIENT -q \"GRANT ${role_a}, ${role_b} TO ${role_a}\" 2>&1 | grep -m1 -o 'BAD_ARGUMENTS'\n+\n+# Legitimate role-to-role grant still works.\n+$CLICKHOUSE_CLIENT -q \"GRANT ${role_a} TO ${role_b}\"\n+\n+# Nothing has been granted to ${role_a} as a consequence.\n+$CLICKHOUSE_CLIENT -q \"SHOW GRANTS FOR ${role_a}\"\n+\n+$CLICKHOUSE_CLIENT -q \"DROP ROLE ${role_a}, ${role_b}\"\n",
+  "problem_statement": "Grant role to itself\n\n### Company or project name\n\n_No response_\n\n### Describe the unexpected behaviour\n\nSomething like this probably should blocked error?\n\nhttps://fiddle.clickhouse.com/f970891b-ff2a-455e-b11c-a727d712d398\n\n### Which ClickHouse versions are affected?\n\nLatest\n\n### How to reproduce\n\n```\ncreate role test_role;\ngrant test_role to test_role;\n\nshow grants for test_role;\n```\n\n### Expected behavior\n\n_No response_\n\n### Error message and/or stacktrace\n\n_No response_\n\n### Additional context\n\n_No response_\n\n\n\n### Version info\n- Resolved by: #103315\n- Merged into: `26.8.1.183` (included in `26.8` and later)",
+  "environment_spec": {
+    "engine": "clickhouse",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "tests/queries/0_stateless/04109_grant_role_to_itself.reference",
+      "tests/queries/0_stateless/04109_grant_role_to_itself.sh"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

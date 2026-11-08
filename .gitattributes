@@ -1,0 +1,10 @@
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.csv text eol=lf
+*.json text eol=lf
+# The evaluator and dataset are frozen byte-for-byte, including embedded diffs.
+# These overrides preserve bytes even when a clone has core.autocrlf=true.
+bench.py -text
+benchmark/** -text
+confirmed_fixed/** -text

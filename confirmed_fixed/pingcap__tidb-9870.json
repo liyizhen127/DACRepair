@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-9870",
+  "base_commit": "d5f0d2bfdd4fa78840f23ac8f934496a4c8ac02a",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex f2e27f94fb50f..ee1f5e640f29f 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -1582,7 +1582,7 @@ func (b *PlanBuilder) buildDDL(node ast.DDLNode) (Plan, error) {\n \t\t}\n \tcase *ast.TruncateTableStmt:\n \t\tb.visitInfo = append(b.visitInfo, visitInfo{\n-\t\t\tprivilege: mysql.DeletePriv,\n+\t\t\tprivilege: mysql.DropPriv,\n \t\t\tdb:        v.Table.Schema.L,\n \t\t\ttable:     v.Table.Name.L,\n \t\t\terr:       nil,\n",
+  "test_patch": "diff --git a/planner/core/logical_plan_test.go b/planner/core/logical_plan_test.go\nindex 99f4b468721f1..5b1c29a18e534 100644\n--- a/planner/core/logical_plan_test.go\n+++ b/planner/core/logical_plan_test.go\n@@ -1535,7 +1535,7 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {\n \t\t{\n \t\t\tsql: \"truncate table t\",\n \t\t\tans: []visitInfo{\n-\t\t\t\t{mysql.DeletePriv, \"test\", \"t\", \"\", nil},\n+\t\t\t\t{mysql.DropPriv, \"test\", \"t\", \"\", nil},\n \t\t\t},\n \t\t},\n \t\t{\n",
+  "problem_statement": "privilege: add drop_priv check when truncate table\n\nBefore this PR, TiDB user truncate table only needs delete_priv. After this PR, needs drop_priv. To be consistent with MySQL. https://dev.mysql.com/doc/refman/5.7/en/privileges-provided.html#priv_drop\r\n\r\n### What is changed and how it works?\r\n\r\nAdd drop_priv to the visitInfo in the plan builder.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "planner/core/logical_plan_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

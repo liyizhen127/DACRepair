@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-fdfb74b38ea8",
+  "base_commit": "2758847bf2be9cd6e30a4517885a5abbf9206fff",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex a8828d15cae4..dd256c70ecb7 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -6117,19 +6117,19 @@ bool mysql_revoke_all(THD *thd,  List <LEX_USER> &list)\n \n   VOID(pthread_mutex_unlock(&acl_cache->lock));\n \n-  int binlog_error=\n+  if (result)\n+    my_message(ER_REVOKE_GRANTS, ER(ER_REVOKE_GRANTS), MYF(0));\n+\n+  result= result |\n     write_bin_log(thd, FALSE, thd->query(), thd->query_length());\n \n   rw_unlock(&LOCK_grant);\n   close_thread_tables(thd);\n \n-  /* error for writing binary log has already been reported */\n-  if (result && !binlog_error)\n-    my_message(ER_REVOKE_GRANTS, ER(ER_REVOKE_GRANTS), MYF(0));\n   /* Restore the state of binlog format */\n   thd->current_stmt_binlog_row_based= save_binlog_row_based;\n \n-  DBUG_RETURN(result || binlog_error);\n+  DBUG_RETURN(result);\n }\n \n \n",
+  "test_patch": "diff --git a/mysql-test/suite/rpl/r/rpl_do_grant.result b/mysql-test/suite/rpl/r/rpl_do_grant.result\nindex 65c60acc6511..4d8cfe3d8b82 100644\n--- a/mysql-test/suite/rpl/r/rpl_do_grant.result\n+++ b/mysql-test/suite/rpl/r/rpl_do_grant.result\n@@ -242,4 +242,18 @@ GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION\n DROP TABLE t1;\n DROP PROCEDURE p1;\n DROP USER 'user49119'@'localhost';\n+stop slave;\n+drop table if exists t1,t2,t3,t4,t5,t6,t7,t8,t9;\n+reset master;\n+reset slave;\n+drop table if exists t1,t2,t3,t4,t5,t6,t7,t8,t9;\n+start slave;\n+grant all on *.* to foo@\"1.2.3.4\";\n+revoke all privileges, grant option from \"foo\";\n+ERROR HY000: Can't revoke all privileges for one or more of the requested users\n+show binlog events from <binlog_start>;\n+Log_name\tPos\tEvent_type\tServer_id\tEnd_log_pos\tInfo\n+master-bin.000001\t#\tQuery\t#\t#\tuse `test`; grant all on *.* to foo@\"1.2.3.4\"\n+master-bin.000001\t#\tQuery\t#\t#\tuse `test`; revoke all privileges, grant option from \"foo\"\n+DROP USER foo@\"1.2.3.4\";\n \"End of test\"\ndiff --git a/mysql-test/suite/rpl/t/rpl_do_grant.test b/mysql-test/suite/rpl/t/rpl_do_grant.test\nindex d6a06f43d180..88120aa35129 100644\n--- a/mysql-test/suite/rpl/t/rpl_do_grant.test\n+++ b/mysql-test/suite/rpl/t/rpl_do_grant.test\n@@ -316,4 +316,33 @@ DROP USER 'user49119'@'localhost';\n \n -- sync_slave_with_master\n \n+#\n+# Bug #51987  \trevoke privileges logs wrong error code\n+#\n+\n+-- connection master\n+-- source include/master-slave-reset.inc\n+-- connection master\n+\n+grant all on *.* to foo@\"1.2.3.4\";\n+-- error ER_REVOKE_GRANTS\n+revoke all privileges, grant option from \"foo\";\n+\n+## assertion: revoke is logged\n+-- source include/show_binlog_events.inc\n+\n+-- sync_slave_with_master\n+\n+## assertion: slave replicates revoke and does not fail because master\n+##            logged revoke with correct expected error code\n+-- let $err= query_get_value(SHOW SLAVE STATUS, Last_SQL_Errno, 1)\n+  if ($err)\n+{\n+    -- die UNEXPECTED ERROR AT SLAVE: $err\n+}\n+\n+-- connection master\n+DROP USER foo@\"1.2.3.4\";\n+-- sync_slave_with_master\n+\n --echo \"End of test\"\n",
+  "problem_statement": "BUG#51987: revoke privileges logs wrong error code\n\nA failed REVOKE statement is logged with error=0, thus causing\nthe slave to stop. The slave should not stop as this was an\nexpected error. Given that the execution failed on the master as\nwell the error code should be logged so that the slave can replay\nthe statement, get an error and compare with the master's\nexecution outcome. If errors match, then slave can proceed with\nreplication, as the error it got, when replaying the statement,\nwas expected.\n\nIn this particular case, the bug surfaces because the error code\nis pushed to the THD diagnostics area after writing the event to\nthe binary log. Therefore, it would be logged with the THD\ndiagnostics area clean, hence its error code would not contain \nthe correct code.\n\nWe fix this by moving the error reporting ahead of the call to\nthe routine that writes the event to the binary log.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/rpl/r/rpl_do_grant.result",
+      "mysql-test/suite/rpl/t/rpl_do_grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

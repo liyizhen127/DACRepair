@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-94cd0f6c9b3b",
+  "base_commit": "ad4239cc3dc7ad5f6f264e1fb3cf6d24084bda90",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 3b6f8bc9f160d..f323c7871c92c 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2037,7 +2037,7 @@ static int check_user_can_set_role(const char *user, const char *host,\n   {\n     /* have to clear the privileges */\n     /* get the current user */\n-    acl_user= find_user_exact(host, user);\n+    acl_user= find_user_wild(host, user, ip);\n     if (acl_user == NULL)\n     {\n       my_error(ER_INVALID_CURRENT_USER, MYF(0), rolename);\n",
+  "test_patch": "diff --git a/mysql-test/suite/roles/set_role-simple.result b/mysql-test/suite/roles/set_role-simple.result\nindex 3ce6d5c054b77..4fb705368b7a6 100644\n--- a/mysql-test/suite/roles/set_role-simple.result\n+++ b/mysql-test/suite/roles/set_role-simple.result\n@@ -45,3 +45,12 @@ delete from mysql.user where user='test_role1';\n delete from mysql.roles_mapping where Role='test_role1';\n flush privileges;\n drop user 'test_user'@'localhost';\n+create user user1;\n+select current_user;\n+current_user\n+user1@%\n+show grants;\n+Grants for user1@%\n+GRANT USAGE ON *.* TO 'user1'@'%'\n+set role none;\n+drop user user1;\ndiff --git a/mysql-test/suite/roles/set_role-simple.test b/mysql-test/suite/roles/set_role-simple.test\nindex 152a1d0eb2520..ed884fa240768 100644\n--- a/mysql-test/suite/roles/set_role-simple.test\n+++ b/mysql-test/suite/roles/set_role-simple.test\n@@ -37,3 +37,18 @@ delete from mysql.user where user='test_role1';\n delete from mysql.roles_mapping where Role='test_role1';\n flush privileges;\n drop user 'test_user'@'localhost';\n+\n+#\n+# MDEV-9898 SET ROLE NONE can crash mysqld.\n+#\n+\n+create user user1;\n+\n+--connect (con1,localhost,user1,,)\n+select current_user;\n+show grants;\n+set role none;\n+\n+connection default;\n+drop user user1;\n+\n",
+  "problem_statement": "SET ROLE NONE can crash mysqld\n\nA user is granted one role only and no other privileges.\r\n{{SET ROLE NONE}} makes mysqld crash\r\n{noformat}\r\nmysql> SET ROLE NONE;\r\nERROR 2013 (HY000): Lost connection to MySQL server during query\r\n{noformat}",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/roles/set_role-simple.result",
+      "mysql-test/suite/roles/set_role-simple.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

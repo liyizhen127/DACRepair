@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-a21a15551cb6",
+  "base_commit": "24f86873b6cd12adf5bbff4fb1df06abe29c7618",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex c64bc9ccbcfd..4c7ecb90a0d3 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -2960,6 +2960,9 @@ case SQLCOM_PREPARE:\n #ifdef HAVE_REPLICATION\n   case SQLCOM_START_GROUP_REPLICATION:\n   {\n+    if (check_global_access(thd, SUPER_ACL))\n+      goto error;\n+\n     res= group_replication_start();\n \n     //To reduce server dependency, server errors are not used here\n@@ -2993,6 +2996,9 @@ case SQLCOM_PREPARE:\n \n   case SQLCOM_STOP_GROUP_REPLICATION:\n   {\n+    if (check_global_access(thd, SUPER_ACL))\n+      goto error;\n+\n     res= group_replication_stop();\n     if (res == 1) //GROUP_REPLICATION_CONFIGURATION_ERROR\n     {\n",
+  "test_patch": "diff --git a/mysql-test/suite/rpl/r/rpl_group_replication_commands.result b/mysql-test/suite/rpl/r/rpl_group_replication_commands.result\nindex 870d250e432c..eac77a1501e3 100644\n--- a/mysql-test/suite/rpl/r/rpl_group_replication_commands.result\n+++ b/mysql-test/suite/rpl/r/rpl_group_replication_commands.result\n@@ -2,3 +2,9 @@ START GROUP_REPLICATION;\n ERROR HY000: The server is not configured properly to be an active member of the group. Please see more details on error log.\n STOP GROUP_REPLICATION;\n ERROR HY000: The server is not configured properly to be an active member of the group. Please see more details on error log.\n+CREATE USER 'group_rpl_user' IDENTIFIED BY '';\n+START GROUP_REPLICATION;\n+ERROR 42000: Access denied; you need (at least one of) the SUPER privilege(s) for this operation\n+STOP GROUP_REPLICATION;\n+ERROR 42000: Access denied; you need (at least one of) the SUPER privilege(s) for this operation\n+DROP USER group_rpl_user;\ndiff --git a/mysql-test/suite/rpl/t/rpl_group_replication_commands.test b/mysql-test/suite/rpl/t/rpl_group_replication_commands.test\nindex e49ced26610a..58194721b558 100644\n--- a/mysql-test/suite/rpl/t/rpl_group_replication_commands.test\n+++ b/mysql-test/suite/rpl/t/rpl_group_replication_commands.test\n@@ -13,3 +13,30 @@ START GROUP_REPLICATION;\n # It shall give a configuration error.\n --error ER_GROUP_REPLICATION_CONFIGURATION\n STOP GROUP_REPLICATION;\n+\n+\n+#########################################################################################\n+# This test verify that only user with super privileges can execute following\n+# commands\"\n+# - START GROUP_REPLICATION\n+# - STOP GROUP_REPLICATION\n+#\n+#########################################################################################\n+\n+CREATE USER 'group_rpl_user' IDENTIFIED BY '';\n+--connect (con_group_rpl_user,127.0.0.1,group_rpl_user,,test,$MASTER_MYPORT,,)\n+--connection con_group_rpl_user\n+\n+# Start Group Replication with non-super privilege user\n+# It shall give a acess denied error.\n+--error ER_SPECIFIC_ACCESS_DENIED_ERROR\n+START GROUP_REPLICATION;\n+\n+# Stop Group Replication with non-super privilege user\n+# It shall give a acess denied error.\n+--error ER_SPECIFIC_ACCESS_DENIED_ERROR\n+STOP GROUP_REPLICATION;\n+\n+--connection default\n+--disconnect con_group_rpl_user\n+DROP USER group_rpl_user;\n",
+  "problem_statement": "Bug#20980885: ENSURE THAT START/STOP GROUP REPLICATION ALWAYS REQUIRE SUPER PRIVILEGE\n\nGroup replication commands:\n- START GROUP_REPLICATION\n- STOP GROUP_REPLICATION\ndoesn't require super privilege to be executed, which could be a issue in some situations.\nOnly a user with super privilege should have the permission to start and stop group replication.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/rpl/r/rpl_group_replication_commands.result",
+      "mysql-test/suite/rpl/t/rpl_group_replication_commands.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

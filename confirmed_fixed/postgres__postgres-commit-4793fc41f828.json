@@ -1,0 +1,36 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-4793fc41f828",
+  "base_commit": "d389415ffad509f0de1342e6ebbb5d5c62dbedef",
+  "patch": "diff --git a/src/backend/commands/typecmds.c b/src/backend/commands/typecmds.c\nindex cd38e9cddf46b..c4c3cdb5461a1 100644\n--- a/src/backend/commands/typecmds.c\n+++ b/src/backend/commands/typecmds.c\n@@ -1494,6 +1494,13 @@ DefineRange(ParseState *pstate, CreateRangeStmt *stmt)\n \t\t\t/* we can look up the subtype name immediately */\n \t\t\tmultirangeNamespace = QualifiedNameGetCreationNamespace(defGetQualifiedName(defel),\n \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t&multirangeTypeName);\n+\n+\t\t\t/* Check we have creation rights in target namespace */\n+\t\t\taclresult = object_aclcheck(NamespaceRelationId, multirangeNamespace,\n+\t\t\t\t\t\t\t\t\t\tGetUserId(), ACL_CREATE);\n+\t\t\tif (aclresult != ACLCHECK_OK)\n+\t\t\t\taclcheck_error(aclresult, OBJECT_SCHEMA,\n+\t\t\t\t\t\t\t   get_namespace_name(multirangeNamespace));\n \t\t}\n \t\telse\n \t\t\tereport(ERROR,\n",
+  "test_patch": "diff --git a/src/test/regress/expected/multirangetypes.out b/src/test/regress/expected/multirangetypes.out\nindex 5fcfec49c69a1..6006aede31d9f 100644\n--- a/src/test/regress/expected/multirangetypes.out\n+++ b/src/test/regress/expected/multirangetypes.out\n@@ -3262,6 +3262,22 @@ drop type textrange1;\n reset role;\n drop role regress_multirange_owner;\n --\n+-- CREATE TYPE checks for CREATE on multirange schema\n+--\n+create role regress_mr;\n+create schema mr_sch;\n+set role regress_mr;\n+create type mytype as range (subtype=int4, multirange_type_name=mr_sch.mr_type);\n+ERROR:  permission denied for schema mr_sch\n+reset role;\n+grant create on schema mr_sch to regress_mr;\n+set role regress_mr;\n+create type mytype as range (subtype=int4, multirange_type_name=mr_sch.mr_type);\n+reset role;\n+drop type mytype;\n+drop schema mr_sch;\n+drop role regress_mr;\n+--\n -- Test polymorphic type system\n --\n create function anyarray_anymultirange_func(a anyarray, r anymultirange)\ndiff --git a/src/test/regress/sql/multirangetypes.sql b/src/test/regress/sql/multirangetypes.sql\nindex 763fc07a875b6..ddff722b28cd4 100644\n--- a/src/test/regress/sql/multirangetypes.sql\n+++ b/src/test/regress/sql/multirangetypes.sql\n@@ -743,6 +743,22 @@ drop type textrange1;\n reset role;\n drop role regress_multirange_owner;\n \n+--\n+-- CREATE TYPE checks for CREATE on multirange schema\n+--\n+create role regress_mr;\n+create schema mr_sch;\n+set role regress_mr;\n+create type mytype as range (subtype=int4, multirange_type_name=mr_sch.mr_type);\n+reset role;\n+grant create on schema mr_sch to regress_mr;\n+set role regress_mr;\n+create type mytype as range (subtype=int4, multirange_type_name=mr_sch.mr_type);\n+reset role;\n+drop type mytype;\n+drop schema mr_sch;\n+drop role regress_mr;\n+\n --\n -- Test polymorphic type system\n --\n",
+  "problem_statement": "Check CREATE privilege on multirange type schema in CREATE TYPE.\n\nThis omission allowed roles to create multirange types in any\nschema, potentially leading to privilege escalations.  Note that\nwhen a multirange type name is not specified in CREATE TYPE, it is\nautomatically placed in the range type's schema, which is checked\nat the beginning of DefineRange().",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "implemented",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64",
+    "prebuilt_donor": {
+      "image_id": "sha256:8d1de36d2a4761e51d665f0f5efb23296ac581213c60831ed7fd2e30937b49cc",
+      "reuse_audit": "test_patch_only_uncompiled_sql_tcl"
+    }
+  },
+  "evaluation_spec": {
+    "mode": "native",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/multirangetypes.out",
+      "src/test/regress/sql/multirangetypes.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [
+      "multirangetypes"
+    ],
+    "test_status": "upstream_unexecuted",
+    "baseline_diff_contains": [
+      "create type mytype as range (subtype=int4, multirange_type_name=mr_sch.mr_type);",
+      "-ERROR:  permission denied for schema mr_sch"
+    ]
+  },
+  "blockers": []
+}

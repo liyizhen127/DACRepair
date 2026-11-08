@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-f49736962f5e",
+  "base_commit": "c9212771fdc2c5e773e4c6eda675e5360ff25c36",
+  "patch": "diff --git a/storage/perfschema/pfs_engine_table.cc b/storage/perfschema/pfs_engine_table.cc\nindex e0bd8ab7eaff..ef0807dba7a6 100644\n--- a/storage/perfschema/pfs_engine_table.cc\n+++ b/storage/perfschema/pfs_engine_table.cc\n@@ -913,16 +913,18 @@ static bool allow_drop_schema_privilege() {\n     in particular, as a schema level privilege:\n     - DROP SCHEMA\n     - GRANT DROP on performance_schema.*\n+    - REVOKE DROP ON performance_schema.*\n     - DROP TABLE performance_schema.*\n \n     As a table level privilege:\n     - DROP TABLE performance_schema.foo\n     - GRANT DROP on performance_schema.foo\n+    - REVOKE DROP on performance_schema.foo\n     - TRUNCATE TABLE performance_schema.foo\n \n     Here, we want to:\n     - always prevent DROP SCHEMA (SQLCOM_DROP_DB)\n-    - allow GRANT to give the TRUNCATE on any tables\n+    - allow GRANT/REVOKE to give the TRUNCATE on any tables\n     - allow DROP TABLE checks to proceed further,\n       in particular to drop unknown tables,\n       see PFS_unknown_acl::check()\n@@ -935,6 +937,7 @@ static bool allow_drop_schema_privilege() {\n   assert(thd->lex != nullptr);\n   if ((thd->lex->sql_command != SQLCOM_TRUNCATE) &&\n       (thd->lex->sql_command != SQLCOM_GRANT) &&\n+      (thd->lex->sql_command != SQLCOM_REVOKE) &&\n       (thd->lex->sql_command != SQLCOM_DROP_TABLE)) {\n     return false;\n   }\n",
+  "test_patch": "diff --git a/mysql-test/r/grant.result b/mysql-test/r/grant.result\nindex 948960ef5e11..0721ecd4ec3d 100644\n--- a/mysql-test/r/grant.result\n+++ b/mysql-test/r/grant.result\n@@ -3352,3 +3352,10 @@ DROP DATABASE test01;\n DROP DATABASE test02;\n DROP USER 'user01'@'localhost';\n DROP USER 'user02'@'localhost';\n+#\n+# Bug#33578113: DROP privilege on performance_schema.* can't be revoked\n+#\n+CREATE USER bug33578113;\n+GRANT DROP ON performance_schema.* TO bug33578113;\n+REVOKE DROP ON performance_schema.* FROM bug33578113;\n+DROP USER bug33578113;\ndiff --git a/mysql-test/t/grant.test b/mysql-test/t/grant.test\nindex 06725d772b4b..3ca2848927ff 100644\n--- a/mysql-test/t/grant.test\n+++ b/mysql-test/t/grant.test\n@@ -3208,5 +3208,17 @@ DROP DATABASE test02;\n DROP USER 'user01'@'localhost';\n DROP USER 'user02'@'localhost';\n \n+--echo #\n+--echo # Bug#33578113: DROP privilege on performance_schema.* can't be revoked\n+--echo #\n+connection default;\n+\n+CREATE USER bug33578113;\n+\n+GRANT DROP ON performance_schema.* TO bug33578113;\n+REVOKE DROP ON performance_schema.* FROM bug33578113;\n+\n+DROP USER bug33578113;\n+\n # Wait till we reached the initial number of concurrent sessions\n --source include/wait_until_count_sessions.inc\n",
+  "problem_statement": "Bug#33578113: DROP privilege on performance_schema.* can't be revoked\n\nDescription: Just like GRANT on PFS and tables within\n             it is allowed, REVOKE should be allowed\n             too.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant.result",
+      "mysql-test/t/grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-15534",
+  "base_commit": "bbac2b2fe4d0fb452b9c1b6e319421643fab4e54",
+  "patch": "diff --git a/privilege/privileges/cache.go b/privilege/privileges/cache.go\nindex f1110edfc5490..0d3af938f9e4a 100644\n--- a/privilege/privileges/cache.go\n+++ b/privilege/privileges/cache.go\n@@ -1253,11 +1253,10 @@ func (p *MySQLPrivilege) getAllRoles(user, host string) []*auth.RoleIdentity {\n \tkey := user + \"@\" + host\n \tedgeTable, ok := p.RoleGraph[key]\n \tret := make([]*auth.RoleIdentity, 0, len(edgeTable.roleList))\n-\tif !ok {\n-\t\treturn nil\n-\t}\n-\tfor _, r := range edgeTable.roleList {\n-\t\tret = append(ret, r)\n+\tif ok {\n+\t\tfor _, r := range edgeTable.roleList {\n+\t\t\tret = append(ret, r)\n+\t\t}\n \t}\n \treturn ret\n }\n",
+  "test_patch": "diff --git a/executor/simple_test.go b/executor/simple_test.go\nindex 548b36d94042f..2e365de48053d 100644\n--- a/executor/simple_test.go\n+++ b/executor/simple_test.go\n@@ -59,6 +59,22 @@ func (s *testSuite3) TestDo(c *C) {\n \ttk.MustQuery(\"select @a\").Check(testkit.Rows(\"1\"))\n }\n \n+func (s *testSuite3) TestSetRoleAllCorner(c *C) {\n+\t// For user with no role, `SET ROLE ALL` should active\n+\t// a empty slice, rather than nil.\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"create user set_role_all\")\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Check(err, IsNil)\n+\tdefer se.Close()\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"set_role_all\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\tctx := context.Background()\n+\t_, err = se.Execute(ctx, `set role all`)\n+\tc.Assert(err, IsNil)\n+\t_, err = se.Execute(ctx, `select current_role`)\n+\tc.Assert(err, IsNil)\n+}\n+\n func (s *testSuite3) TestCreateRole(c *C) {\n \ttk := testkit.NewTestKit(c, s.store)\n \ttk.MustExec(\"create user testCreateRole;\")\n",
+  "problem_statement": "privilege: fix select current_role() error\n\nFor user with no role, execute `SET ROLE ALL`, then `SELECT CURRENT_ROLE()`\r\n\r\n```\r\nmysql> set role all;\r\nQuery OK, 0 rows affected (0.00 sec)\r\n\r\nmysql> select current_role();\r\nERROR 1105 (HY000): Missing session variable when eval builtin\r\n```\r\n\r\nProblem Summary:\r\nThis was caused by `GetAllRole`, which will return `nil` if user has no role.\r\n\r\n### What is changed and how it works?\r\n\r\nlet `GetAllRole` return a empty slice, rather than `nil`.\r\n\r\n### Related changes\r\n\r\n- PR to update `pingcap/docs`/`pingcap/docs-cn`:\r\n- PR to update `pingcap/tidb-ansible`:\r\n- Need to cherry-pick to the release branch",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/simple_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

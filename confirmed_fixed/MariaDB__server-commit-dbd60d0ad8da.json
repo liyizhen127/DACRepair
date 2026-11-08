@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-dbd60d0ad8da",
+  "base_commit": "0c8cfc362063b8cff16001e6e77b5ed06c16f4dd",
+  "patch": "diff --git a/sql/sql_yacc.yy b/sql/sql_yacc.yy\nindex ae132ce0ead94..d177dc805afb9 100644\n--- a/sql/sql_yacc.yy\n+++ b/sql/sql_yacc.yy\n@@ -15720,7 +15720,6 @@ user_maybe_role:\n             if (unlikely(!($$=(LEX_USER*)thd->calloc(sizeof(LEX_USER)))))\n               MYSQL_YYABORT;\n             $$->user= current_user;\n-            $$->auth= new (thd->mem_root) USER_AUTH();\n           }\n         ;\n \ndiff --git a/sql/structs.h b/sql/structs.h\nindex aed4dacb02293..0aaf3d3f47eb4 100644\n--- a/sql/structs.h\n+++ b/sql/structs.h\n@@ -256,7 +256,7 @@ struct LEX_USER: public AUTHID\n   USER_AUTH *auth;\n   bool has_auth()\n   {\n-    return auth && (auth->plugin.length || auth->auth_str.length || auth->pwtext.length);\n+    return auth;\n   }\n };\n \n",
+  "test_patch": "diff --git a/mysql-test/main/grant5.result b/mysql-test/main/grant5.result\nindex 5aeedb8940933..b72b15ce19e58 100644\n--- a/mysql-test/main/grant5.result\n+++ b/mysql-test/main/grant5.result\n@@ -472,3 +472,27 @@ DROP USER foo@localhost;\n CREATE USER foo@localhost IDENTIFIED VIA not_installed_plugin;\n ERROR HY000: Plugin 'not_installed_plugin' is not loaded\n # End of 10.5 tests\n+#\n+# MDEV-40470 GRANT PROXY with empty password incorrectly checks grantor's privileges\n+#\n+create user u1@localhost;\n+create user u2@localhost identified by 'pwd';\n+grant all privileges on *.* to u2@localhost with grant option;\n+show create user u2@localhost;\n+CREATE USER for u2@localhost\n+CREATE USER `u2`@`localhost` IDENTIFIED BY PASSWORD '*975B2CD4FF9AE554FE8AD33168FBFC326D2021DD'\n+connect u,localhost,u1;\n+show grants;\n+Grants for u1@localhost\n+GRANT USAGE ON *.* TO `u1`@`localhost`\n+grant proxy on u1@localhost to u2@localhost identified via 'foo';\n+ERROR 42000: Access denied for user 'u1'@'localhost' to database 'mysql'\n+grant proxy on u1@localhost to u2@localhost identified via '';\n+ERROR 42000: Access denied for user 'u1'@'localhost' to database 'mysql'\n+connection default;\n+show create user u2@localhost;\n+CREATE USER for u2@localhost\n+CREATE USER `u2`@`localhost` IDENTIFIED BY PASSWORD '*975B2CD4FF9AE554FE8AD33168FBFC326D2021DD'\n+drop user u1@localhost;\n+drop user u2@localhost;\n+# End of 10.6 tests\ndiff --git a/mysql-test/main/grant5.test b/mysql-test/main/grant5.test\nindex a33cecbfc6dc7..ca25db100d4d9 100644\n--- a/mysql-test/main/grant5.test\n+++ b/mysql-test/main/grant5.test\n@@ -436,3 +436,24 @@ DROP USER foo@localhost;\n CREATE USER foo@localhost IDENTIFIED VIA not_installed_plugin;\n \n --echo # End of 10.5 tests\n+\n+--echo #\n+--echo # MDEV-40470 GRANT PROXY with empty password incorrectly checks grantor's privileges\n+--echo #\n+create user u1@localhost;\n+create user u2@localhost identified by 'pwd';\n+grant all privileges on *.* to u2@localhost with grant option;\n+\n+show create user u2@localhost;\n+connect u,localhost,u1;\n+show grants;\n+--error ER_DBACCESS_DENIED_ERROR\n+grant proxy on u1@localhost to u2@localhost identified via 'foo';\n+--error ER_DBACCESS_DENIED_ERROR\n+grant proxy on u1@localhost to u2@localhost identified via '';\n+connection default;\n+show create user u2@localhost;\n+drop user u1@localhost;\n+drop user u2@localhost;\n+\n+--echo # End of 10.6 tests\n",
+  "problem_statement": "GRANT PROXY with empty password incorrectly checks grantor's privileges\n\n{code:sql}\r\nCREATE USER u1@localhost;\r\n\r\nCREATE USER u2@localhost IDENTIFIED BY 'oldpassword';\r\nGRANT ALL PRIVILEGES ON *.* TO u2@localhost WITH GRANT OPTION;\r\n\r\nshow create user u2@localhost;\r\n\r\nconnect u,localhost,u1;\r\nSHOW GRANTS;\r\nGRANT PROXY ON u1@localhost TO u2@localhost IDENTIFIED VIA\r\n  '' OR mysql_native_password USING PASSWORD('newpassword');\r\n\r\nconnection default;\r\nshow create user u2@localhost;\r\n\r\ndrop user u1@localhost;\r\ndrop user u2@localhost;\r\n{code}\r\n\r\nReported by [Kévin GERVOT|https://mizu.re]",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/main/grant5.result",
+      "mysql-test/main/grant5.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

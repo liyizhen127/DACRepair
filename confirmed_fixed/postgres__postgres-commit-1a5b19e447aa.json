@@ -1,0 +1,37 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-1a5b19e447aa",
+  "base_commit": "f2ff15e4c37190e677437ecb76f706a05a645c6b",
+  "patch": "diff --git a/src/backend/catalog/system_views.sql b/src/backend/catalog/system_views.sql\nindex 73a1c1c46703a..8f129baec9061 100644\n--- a/src/backend/catalog/system_views.sql\n+++ b/src/backend/catalog/system_views.sql\n@@ -1527,7 +1527,8 @@ GRANT SELECT (oid, subdbid, subskiplsn, subname, subowner, subenabled,\n               subbinary, substream, subtwophasestate, subdisableonerr,\n \t\t\t  subpasswordrequired, subrunasowner, subfailover,\n               subretaindeadtuples, submaxretention, subretentionactive,\n-              subserver, subslotname, subsynccommit, subpublications, suborigin)\n+              subserver, subslotname, subsynccommit, subwalrcvtimeout,\n+              subpublications, suborigin)\n     ON pg_subscription TO public;\n \n CREATE VIEW pg_stat_subscription_stats AS\ndiff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h\nindex a1416260abcbf..87007e725c161 100644\n--- a/src/include/catalog/catversion.h\n+++ b/src/include/catalog/catversion.h\n@@ -57,6 +57,6 @@\n  */\n \n /*\t\t\t\t\t\t\tyyyymmddN */\n-#define CATALOG_VERSION_NO\t202605131\n+#define CATALOG_VERSION_NO\t202606051\n \n #endif\n",
+  "test_patch": "diff --git a/src/test/regress/expected/subscription.out b/src/test/regress/expected/subscription.out\nindex 7e3cabdb93f52..8481056a70231 100644\n--- a/src/test/regress/expected/subscription.out\n+++ b/src/test/regress/expected/subscription.out\n@@ -47,6 +47,21 @@ SELECT obj_description(s.oid, 'pg_subscription') FROM pg_subscription s;\n  test subscription\n (1 row)\n \n+-- Check that only subconninfo is not publicly readable in pg_subscription.\n+SELECT count(*) = 0 AS ok\n+    FROM pg_attribute\n+    WHERE attrelid = 'pg_catalog.pg_subscription'::regclass AND attnum > 0 AND NOT attisdropped\n+        AND ((attname = 'subconninfo'\n+\t        AND has_column_privilege('regress_subscription_user_dummy',\n+\t\t    'pg_catalog.pg_subscription', attname, 'SELECT'))\n+            OR (attname <> 'subconninfo'\n+\t        AND NOT has_column_privilege('regress_subscription_user_dummy',\n+\t\t    'pg_catalog.pg_subscription', attname, 'SELECT')));\n+ ok \n+----\n+ t\n+(1 row)\n+\n -- Check if the subscription stats are created and stats_reset is updated\n -- by pg_stat_reset_subscription_stats().\n SELECT subname, stats_reset IS NULL stats_reset_is_null FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub';\ndiff --git a/src/test/regress/sql/subscription.sql b/src/test/regress/sql/subscription.sql\nindex 6c3d9632e8a3a..374fad6aa7b0e 100644\n--- a/src/test/regress/sql/subscription.sql\n+++ b/src/test/regress/sql/subscription.sql\n@@ -42,6 +42,17 @@ CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUB\n COMMENT ON SUBSCRIPTION regress_testsub IS 'test subscription';\n SELECT obj_description(s.oid, 'pg_subscription') FROM pg_subscription s;\n \n+-- Check that only subconninfo is not publicly readable in pg_subscription.\n+SELECT count(*) = 0 AS ok\n+    FROM pg_attribute\n+    WHERE attrelid = 'pg_catalog.pg_subscription'::regclass AND attnum > 0 AND NOT attisdropped\n+        AND ((attname = 'subconninfo'\n+\t        AND has_column_privilege('regress_subscription_user_dummy',\n+\t\t    'pg_catalog.pg_subscription', attname, 'SELECT'))\n+            OR (attname <> 'subconninfo'\n+\t        AND NOT has_column_privilege('regress_subscription_user_dummy',\n+\t\t    'pg_catalog.pg_subscription', attname, 'SELECT')));\n+\n -- Check if the subscription stats are created and stats_reset is updated\n -- by pg_stat_reset_subscription_stats().\n SELECT subname, stats_reset IS NULL stats_reset_is_null FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub';\n",
+  "problem_statement": "PostgreSQL non-superusers cannot read pg_subscription.subwalrcvtimeout.\n\nUnlike the other publicly readable pg_subscription columns, subwalrcvtimeout is not readable by non-superusers. It should have the same public readability as the corresponding public subscription settings.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "implemented",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64",
+    "prebuilt_donor": {
+      "image_id": "sha256:a4919561eb31c96020eda15e7b734fcbcd45886f619ef285fe3b052b7c3c3f3f",
+      "reuse_audit": "test_patch_only_uncompiled_sql_tcl"
+    }
+  },
+  "evaluation_spec": {
+    "mode": "native",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/subscription.out",
+      "src/test/regress/sql/subscription.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [
+      "subscription"
+    ],
+    "test_status": "upstream_unexecuted",
+    "baseline_diff_contains": [
+      "pg_catalog.pg_subscription",
+      "- t",
+      "+ f"
+    ]
+  },
+  "blockers": []
+}

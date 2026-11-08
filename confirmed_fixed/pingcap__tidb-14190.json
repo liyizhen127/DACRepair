@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-14190",
+  "base_commit": "f036eecc9dab4e3c703337f9dab62359079675af",
+  "patch": "diff --git a/privilege/privileges/cache.go b/privilege/privileges/cache.go\nindex b0d52b26fc70d..618d5e697b1c0 100644\n--- a/privilege/privileges/cache.go\n+++ b/privilege/privileges/cache.go\n@@ -44,6 +44,8 @@ var (\n \ttablePrivMask          = computePrivMask(mysql.AllTablePrivs)\n )\n \n+const globalDBVisible = mysql.CreatePriv | mysql.SelectPriv | mysql.InsertPriv | mysql.UpdatePriv | mysql.DeletePriv | mysql.ShowDBPriv | mysql.DropPriv | mysql.AlterPriv | mysql.IndexPriv | mysql.CreateViewPriv | mysql.ShowViewPriv | mysql.GrantPriv\n+\n func computePrivMask(privs []mysql.PrivilegeType) mysql.PrivilegeType {\n \tvar mask mysql.PrivilegeType\n \tfor _, p := range privs {\n@@ -942,7 +944,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u\n // DBIsVisible checks whether the user can see the db.\n func (p *MySQLPrivilege) DBIsVisible(user, host, db string) bool {\n \tif record := p.matchUser(user, host); record != nil {\n-\t\tif record.Privileges != 0 {\n+\t\tif record.Privileges&globalDBVisible > 0 {\n \t\t\treturn true\n \t\t}\n \t}\n",
+  "test_patch": "diff --git a/privilege/privileges/cache_test.go b/privilege/privileges/cache_test.go\nindex c6c3544ca6093..83e5f43b40af7 100644\n--- a/privilege/privileges/cache_test.go\n+++ b/privilege/privileges/cache_test.go\n@@ -502,3 +502,55 @@ func checkUserRecord(x, y []privileges.UserRecord, c *C) {\n \t\tc.Assert(x[i].Host, Equals, y[i].Host)\n \t}\n }\n+\n+func (s *testCacheSuite) TestDBIsVisible(c *C) {\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Assert(err, IsNil)\n+\tdefer se.Close()\n+\tmustExec(c, se, \"create database visdb\")\n+\tp := privileges.MySQLPrivilege{}\n+\terr = p.LoadAll(se)\n+\tc.Assert(err, IsNil)\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Create_role_priv, Super_priv) VALUES (\"%\", \"testvisdb\", \"Y\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible := p.DBIsVisible(\"testvisdb\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsFalse)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Select_priv) VALUES (\"%\", \"testvisdb2\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb2\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Create_priv) VALUES (\"%\", \"testvisdb3\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb3\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Insert_priv) VALUES (\"%\", \"testvisdb4\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb4\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Update_priv) VALUES (\"%\", \"testvisdb5\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb5\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+\n+\tmustExec(c, se, `INSERT INTO mysql.user (Host, User, Create_view_priv) VALUES (\"%\", \"testvisdb6\", \"Y\")`)\n+\terr = p.LoadUserTable(se)\n+\tc.Assert(err, IsNil)\n+\tisVisible = p.DBIsVisible(\"testvisdb6\", \"%\", \"visdb\")\n+\tc.Assert(isVisible, IsTrue)\n+\tmustExec(c, se, \"TRUNCATE TABLE mysql.user\")\n+}\n",
+  "problem_statement": "privilege: fix DBIsVisible privilege check\n\nOriginally, user with any one of global privileges can see all database names and use them.\r\nBut MySQL just support few global privileges to access any databases.\r\n\r\n### What is changed and how it works?\r\nfix privilege check for global privilege in `DBIsVisible`",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/cache_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

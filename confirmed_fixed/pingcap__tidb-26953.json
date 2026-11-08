@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-26953",
+  "base_commit": "a8adc4cf8e2643112214db41e907fa5ebbc04a34",
+  "patch": "diff --git a/expression/builtin_info.go b/expression/builtin_info.go\nindex 33c1ee2ec79b9..381869098b35a 100644\n--- a/expression/builtin_info.go\n+++ b/expression/builtin_info.go\n@@ -785,6 +785,11 @@ func (c *tidbDecodeSQLDigestsFunctionClass) getFunction(ctx sessionctx.Context,\n \t\treturn nil, err\n \t}\n \n+\tpm := privilege.GetPrivilegeManager(ctx)\n+\tif pm != nil && !pm.RequestVerification(ctx.GetSessionVars().ActiveRoles, \"\", \"\", \"\", mysql.ProcessPriv) {\n+\t\treturn nil, errSpecificAccessDenied.GenWithStackByArgs(\"PROCESS\")\n+\t}\n+\n \tvar argTps []types.EvalType\n \tif len(args) > 1 {\n \t\targTps = []types.EvalType{types.ETString, types.ETInt}\ndiff --git a/expression/errors.go b/expression/errors.go\nindex 43c3a8373f352..b4905b1e9b1f5 100644\n--- a/expression/errors.go\n+++ b/expression/errors.go\n@@ -49,6 +49,7 @@ var (\n \terrNonUniq                       = dbterror.ClassExpression.NewStd(mysql.ErrNonUniq)\n \terrWrongValueForType             = dbterror.ClassExpression.NewStd(mysql.ErrWrongValueForType)\n \terrUnknown                       = dbterror.ClassExpression.NewStd(mysql.ErrUnknown)\n+\terrSpecificAccessDenied          = dbterror.ClassExpression.NewStd(mysql.ErrSpecificAccessDenied)\n \n \t// Sequence usage privilege check.\n \terrSequenceAccessDenied      = dbterror.ClassExpression.NewStd(mysql.ErrTableaccessDenied)\n",
+  "test_patch": "diff --git a/executor/executor_test.go b/executor/executor_test.go\nindex 6705459c48414..ffb281424ef89 100644\n--- a/executor/executor_test.go\n+++ b/executor/executor_test.go\n@@ -6757,6 +6757,34 @@ func (s *testClusterTableSuite) TestFunctionDecodeSQLDigests(c *C) {\n \ttk.MustGetErrCode(\"select tidb_decode_sql_digests()\", 1582)\n }\n \n+func (s *testClusterTableSuite) TestFunctionDecodeSQLDigestsPrivilege(c *C) {\n+\tdropUserTk := testkit.NewTestKitWithInit(c, s.store)\n+\tc.Assert(dropUserTk.Se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\n+\ttk := testkit.NewTestKitWithInit(c, s.store)\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\ttk.MustExec(\"create user 'testuser'@'localhost'\")\n+\tdefer dropUserTk.MustExec(\"drop user 'testuser'@'localhost'\")\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{\n+\t\tUsername: \"testuser\",\n+\t\tHostname: \"localhost\",\n+\t}, nil, nil), IsTrue)\n+\terr := tk.ExecToErr(\"select tidb_decode_sql_digests('[\\\"aa\\\"]')\")\n+\tc.Assert(err, NotNil)\n+\tc.Assert(err.Error(), Equals, \"[expression:1227]Access denied; you need (at least one of) the PROCESS privilege(s) for this operation\")\n+\n+\ttk = testkit.NewTestKitWithInit(c, s.store)\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\ttk.MustExec(\"create user 'testuser2'@'localhost'\")\n+\tdefer dropUserTk.MustExec(\"drop user 'testuser2'@'localhost'\")\n+\ttk.MustExec(\"grant process on *.* to 'testuser2'@'localhost'\")\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{\n+\t\tUsername: \"testuser2\",\n+\t\tHostname: \"localhost\",\n+\t}, nil, nil), IsTrue)\n+\t_ = tk.MustQuery(\"select tidb_decode_sql_digests('[\\\"aa\\\"]')\")\n+}\n+\n func prepareLogs(c *C, logData []string, fileNames []string) {\n \twriteFile := func(file string, data string) {\n \t\tf, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)\n",
+  "problem_statement": "expression/builtin: Add privilege check to function tidb_decode_sql_digests\n\nProblem Summary: The function `tidb_decode_sql_digests` didn't check the user's privilege. A user without `PROCESS` privilege should not be permitted to retrieve information about SQL statements from other users. \r\n\r\n### What is changed and how it works?\r\n\r\nWhat's Changed: Added privilege check to the `tidb_decode_sql_digests` function that denies invocations from users without `PROCESS` privilege.\r\n\r\nHow it Works:",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/executor_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

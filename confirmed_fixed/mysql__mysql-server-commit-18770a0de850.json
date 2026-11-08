@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-18770a0de850",
+  "base_commit": "8f6ecbca829b558f3a977a4d4104610535999eba",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 134541368e97..851af35da329 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -668,7 +668,9 @@ static ulong get_sort(uint count,...)\n     {\n       for (; *str ; str++)\n       {\n-\tif (*str == wild_many || *str == wild_one || *str == wild_prefix)\n+        if (*str == wild_prefix && str[1])\n+          str++;\n+        else if (*str == wild_many || *str == wild_one)\n         {\n           wild_pos= (uint) (str - start) + 1;\n           break;\n",
+  "test_patch": "diff --git a/mysql-test/r/grant3.result b/mysql-test/r/grant3.result\nindex cc7f46855b25..f38848111adf 100644\n--- a/mysql-test/r/grant3.result\n+++ b/mysql-test/r/grant3.result\n@@ -138,3 +138,20 @@ SELECT user, host, db, select_priv FROM mysql.db where user = 'CUser2' order by\n user\thost\tdb\tselect_priv\n DROP USER CUser2@localhost;\n DROP USER CUser2@LOCALHOST;\n+CREATE DATABASE mysqltest_1;\n+CREATE TABLE mysqltest_1.t1 (a INT);\n+CREATE USER 'mysqltest1'@'%';\n+GRANT SELECT, UPDATE ON `mysqltest_1`.* TO 'mysqltest1'@'%';\n+REVOKE SELECT ON `mysqltest_1`.* FROM 'mysqltest1'@'%';\n+GRANT SELECT, UPDATE ON `mysqltest\\_1`.* TO 'mysqltest1'@'%';\n+FLUSH PRIVILEGES;\n+SHOW GRANTS;\n+Grants for mysqltest1@%\n+GRANT USAGE ON *.* TO 'mysqltest1'@'%'\n+GRANT SELECT, UPDATE ON `mysqltest\\_1`.* TO 'mysqltest1'@'%'\n+GRANT UPDATE ON `mysqltest_1`.* TO 'mysqltest1'@'%'\n+SELECT * FROM mysqltest_1.t1;\n+a\n+DROP USER 'mysqltest1'@'%';\n+DROP DATABASE mysqltest_1;\n+End of 5.0 tests\ndiff --git a/mysql-test/t/grant3.test b/mysql-test/t/grant3.test\nindex fac577ef0ff4..8eceb851c29c 100644\n--- a/mysql-test/t/grant3.test\n+++ b/mysql-test/t/grant3.test\n@@ -134,3 +134,29 @@ SELECT user, host, db, select_priv FROM mysql.db where user = 'CUser2' order by\n \n DROP USER CUser2@localhost;\n DROP USER CUser2@LOCALHOST;\n+\n+\n+#\n+# Bug#31194: Privilege ordering does not order properly for wildcard values\n+#\n+\n+CREATE DATABASE mysqltest_1;\n+CREATE TABLE mysqltest_1.t1 (a INT);\n+CREATE USER 'mysqltest1'@'%';\n+GRANT SELECT, UPDATE ON `mysqltest_1`.* TO 'mysqltest1'@'%';\n+REVOKE SELECT ON `mysqltest_1`.* FROM 'mysqltest1'@'%';\n+GRANT SELECT, UPDATE ON `mysqltest\\_1`.* TO 'mysqltest1'@'%';\n+FLUSH PRIVILEGES;\n+\n+connect (conn1,localhost,mysqltest1,,);\n+connection conn1;\n+SHOW GRANTS;\n+SELECT * FROM mysqltest_1.t1;\n+disconnect conn1;\n+\n+connection default;\n+DROP USER 'mysqltest1'@'%';\n+DROP DATABASE mysqltest_1;\n+\n+\n+--echo End of 5.0 tests\n",
+  "problem_statement": "Fixed bug#31194: Privilege ordering does not order properly\n                 for wildcard values.\nThe server ignored escape character before wildcards during\nthe calculation of priority values for sorting of a privilege\nlist. (Actually the server counted an escape character as an\nordinary wildcard like % or _). I.e. the table name template\nwith a wildcard character like 'tbl_1' had higher priority in\na privilege list than concrete table name without wildcards\nlike 'tbl\\_1', and some privileges of 'tbl\\_1' was hidden\nby privileges for 'tbl_1'.\n\nThe get_sort function has been modified to ignore escaped\nwildcards as usual.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant3.result",
+      "mysql-test/t/grant3.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

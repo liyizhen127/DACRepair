@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-35365",
+  "base_commit": "f5d3b0272c82a74ca626bd0883df5e93a74e48cd",
+  "patch": "diff --git a/executor/grant.go b/executor/grant.go\nindex 04e7ffc5914c3..99db32abe79d1 100644\n--- a/executor/grant.go\n+++ b/executor/grant.go\n@@ -163,7 +163,7 @@ func (e *GrantExec) Next(ctx context.Context, req *chunk.Chunk) error {\n \t\t\t\treturn errors.Trace(ErrPasswordFormat)\n \t\t\t}\n \t\t\tauthPlugin := mysql.AuthNativePassword\n-\t\t\tif user.AuthOpt.AuthPlugin != \"\" {\n+\t\t\tif user.AuthOpt != nil && user.AuthOpt.AuthPlugin != \"\" {\n \t\t\t\tauthPlugin = user.AuthOpt.AuthPlugin\n \t\t\t}\n \t\t\t_, err := internalSession.(sqlexec.SQLExecutor).ExecuteInternal(ctx,\n",
+  "test_patch": "diff --git a/executor/grant_test.go b/executor/grant_test.go\nindex 89b6c3c82e425..9ea2f943071ea 100644\n--- a/executor/grant_test.go\n+++ b/executor/grant_test.go\n@@ -260,6 +260,13 @@ func TestCreateUserWhenGrant(t *testing.T) {\n \t\ttestkit.Rows(\"test\"),\n \t)\n \ttk.MustExec(`DROP USER IF EXISTS 'test'@'%'`)\n+\t// Grant without a password.\n+\ttk.MustExec(`GRANT ALL PRIVILEGES ON *.* to 'test'@'%'`)\n+\t// Make sure user is created automatically when grant to a non-exists one.\n+\ttk.MustQuery(`SELECT user, plugin FROM mysql.user WHERE user='test' and host='%'`).Check(\n+\t\ttestkit.Rows(\"test mysql_native_password\"),\n+\t)\n+\ttk.MustExec(`DROP USER IF EXISTS 'test'@'%'`)\n }\n \n func TestCreateUserWithTooLongName(t *testing.T) {\n",
+  "problem_statement": "runtime error: invalid memory address or nil pointer dereference (Maybe not a bug)\n\n## Bug Report\r\n\r\nPlease answer these questions before submitting your issue. Thanks!\r\n\r\n### 1. Minimal reproduce step (Required)\r\n\r\n```sql\r\nSET sql_mode=\"\";\r\nGRANT ALL PRIVILEGES ON *.* to '???';\r\n```\r\n\r\n### 2. What did you expect to see? (Required)\r\n\r\n```\r\nQuery OK, 0 rows affected (0.00 sec)\r\nERROR 1410 (42000): You are not allowed to create a user with GRANT\r\n```\r\n\r\n### 3. What did you see instead (Required)\r\n\r\n```\r\nQuery OK, 0 rows affected (0.00 sec)\r\nERROR 1105 (HY000): runtime error: invalid memory address or nil pointer dereference\r\n```\r\n\r\n### 4. What is your TiDB version? (Required)\r\n\r\n```\r\nRelease Version: v6.2.0-alpha-97-g06737ecd2\r\nEdition: Community\r\nGit Commit Hash: 06737ecd29b0ae633d9ac89b0660e7a43939c88d\r\nGit Branch: master\r\nUTC Build Time: 2022-06-11 07:47:16\r\nGoVersion: go1.18.2\r\nRace Enabled: false\r\nTiKV Min Version: v3.0.0-60965b006877ca7234adaced7890d7b029ed1306\r\nCheck Table Before Drop: false\r\nStore: unistore\r\n```",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/grant_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

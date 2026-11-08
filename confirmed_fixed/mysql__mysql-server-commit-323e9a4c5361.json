@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-323e9a4c5361",
+  "base_commit": "1c1401bbb2fa351d3c458307e688b8c268b476ff",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 134541368e97..703918329c29 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2878,6 +2878,12 @@ bool mysql_table_grant(THD *thd, TABLE_LIST *table_list,\n   }\n #endif\n \n+  /* \n+    The lock api is depending on the thd->lex variable which needs to be\n+    re-initialized.\n+  */\n+  Query_tables_list backup;\n+  thd->lex->reset_n_backup_query_tables_list(&backup);\n   if (simple_open_n_lock_tables(thd,tables))\n   {\t\t\t\t\t\t// Should never happen\n     close_thread_tables(thd);\t\t\t/* purecov: deadcode */\n@@ -3016,6 +3022,7 @@ bool mysql_table_grant(THD *thd, TABLE_LIST *table_list,\n     send_ok(thd);\n \n   /* Tables are automatically closed */\n+  thd->lex->restore_backup_query_tables_list(&backup);\n   DBUG_RETURN(result);\n }\n \n",
+  "test_patch": "diff --git a/mysql-test/r/grant.result b/mysql-test/r/grant.result\nindex e27ef64af436..98a21b145853 100644\n--- a/mysql-test/r/grant.result\n+++ b/mysql-test/r/grant.result\n@@ -1129,4 +1129,26 @@ DROP USER mysqltest_1@localhost;\n DROP DATABASE db27878;\n use test;\n DROP TABLE t1;\n+drop table if exists test;\n+Warnings:\n+Note\t1051\tUnknown table 'test'\n+drop function if exists test_function;\n+Warnings:\n+Note\t1305\tFUNCTION test_function does not exist\n+drop view if exists v1;\n+Warnings:\n+Note\t1051\tUnknown table 'test.v1'\n+create table test (col1 varchar(30));\n+create function test_function() returns varchar(30)\n+begin\n+declare tmp varchar(30);\n+select col1 from test limit 1 into tmp;\n+return '1';\n+end|\n+create view v1 as select test.* from test where test.col1=test_function();\n+grant update (col1) on v1 to 'greg';\n+revoke all privileges on v1 from 'greg';\n+drop view v1;\n+drop table test;\n+drop function test_function;\n End of 5.0 tests\ndiff --git a/mysql-test/t/grant.test b/mysql-test/t/grant.test\nindex ed95d90c8f8c..43548094a33a 100644\n--- a/mysql-test/t/grant.test\n+++ b/mysql-test/t/grant.test\n@@ -1153,4 +1153,26 @@ DROP DATABASE db27878;\n use test;\n DROP TABLE t1;\n \n+#\n+# Bug #33201 Crash occurs when granting update privilege on one column of a view\n+#\n+drop table if exists test;\n+drop function if exists test_function;\n+drop view if exists v1;\n+create table test (col1 varchar(30));\n+delimiter |;\n+create function test_function() returns varchar(30)\n+begin\n+        declare tmp varchar(30);\n+        select col1 from test limit 1 into tmp;\n+        return '1';\n+end|\n+delimiter ;|\n+create view v1 as select test.* from test where test.col1=test_function();\n+grant update (col1) on v1 to 'greg';\n+revoke all privileges on v1 from 'greg';\n+drop view v1;\n+drop table test;\n+drop function test_function;\n+\n --echo End of 5.0 tests\n",
+  "problem_statement": "Bug#33201 Crash occurs when granting update privilege on one column of a view\n\nWhen issuing a column level grant on a table which require pre-locking the \nserver crashed.\n\nThe reason behind the crash was that data structures used by the lock api\nwasn't properly reinitialized in the case of a column level grant.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant.result",
+      "mysql-test/t/grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

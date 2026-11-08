@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-fbbb797dc82c",
+  "base_commit": "6feaef7517cc6e2ae8f854885d1b0e7e4a9e9be7",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 4ee47a574b14..a170a554884a 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -2975,6 +2975,11 @@ mysql_execute_command(THD *thd)\n #else\n     {\n       ulong priv=0;\n+      ulong priv_needed= ALTER_ACL;\n+      /* We also require DROP priv for ALTER TABLE ... DROP PARTITION */\n+      if (lex->alter_info.flags & ALTER_DROP_PARTITION)\n+        priv_needed|= DROP_ACL;\n+\n       if (lex->name && (!lex->name[0] || strlen(lex->name) > NAME_LEN))\n       {\n \tmy_error(ER_WRONG_TABLE_NAME, MYF(0), lex->name);\n@@ -2999,7 +3004,7 @@ mysql_execute_command(THD *thd)\n         else\n           select_lex->db= first_table->db;\n       }\n-      if (check_access(thd, ALTER_ACL, first_table->db,\n+      if (check_access(thd, priv_needed, first_table->db,\n \t\t       &first_table->grant.privilege, 0, 0,\n                        test(first_table->schema_table)) ||\n \t  check_access(thd,INSERT_ACL | CREATE_ACL,select_lex->db,&priv,0,0,\n@@ -3010,7 +3015,7 @@ mysql_execute_command(THD *thd)\n \tgoto error;\t\t\t\t/* purecov: inspected */\n       if (grant_option)\n       {\n-\tif (check_grant(thd, ALTER_ACL, all_tables, 0, UINT_MAX, 0))\n+\tif (check_grant(thd, priv_needed, all_tables, 0, UINT_MAX, 0))\n \t  goto error;\n \tif (lex->name && !test_all_bits(priv,INSERT_ACL | CREATE_ACL))\n \t{\t\t\t\t\t// Rename of table\n",
+  "test_patch": "diff --git a/mysql-test/r/partition_grant.result b/mysql-test/r/partition_grant.result\nnew file mode 100644\nindex 000000000000..da0e00c98584\n--- /dev/null\n+++ b/mysql-test/r/partition_grant.result\n@@ -0,0 +1,23 @@\n+drop schema if exists mysqltest_1;\n+create schema mysqltest_1;\n+use mysqltest_1;\n+create table t1 (a int) partition by list (a) (partition p1 values in (1), partition p2 values in (2), partition p3 values in (3));\n+insert into t1 values (1),(2);\n+grant select,alter on mysqltest_1.* to mysqltest_1@localhost;\n+show grants for current_user;\n+Grants for mysqltest_1@localhost\n+GRANT USAGE ON *.* TO 'mysqltest_1'@'localhost'\n+GRANT SELECT, ALTER ON `mysqltest_1`.* TO 'mysqltest_1'@'localhost'\n+alter table t1 add b int;\n+alter table t1 drop partition p2;\n+ERROR 42000: DROP command denied to user 'mysqltest_1'@'localhost' for table 't1'\n+grant drop on mysqltest_1.* to mysqltest_1@localhost;\n+alter table t1 drop partition p2;\n+revoke alter on mysqltest_1.* from mysqltest_1@localhost;\n+alter table t1 drop partition p3;\n+ERROR 42000: ALTER command denied to user 'mysqltest_1'@'localhost' for table 't1'\n+revoke select,alter,drop on mysqltest_1.* from mysqltest_1@localhost;\n+drop user mysqltest_1@localhost;\n+drop table t1;\n+drop schema mysqltest_1;\n+End of 5.1 tests\ndiff --git a/mysql-test/t/partition_grant.test b/mysql-test/t/partition_grant.test\nnew file mode 100644\nindex 000000000000..e2e80a7ca043\n--- /dev/null\n+++ b/mysql-test/t/partition_grant.test\n@@ -0,0 +1,51 @@\n+-- source include/have_partition.inc\n+# Grant tests not performed with embedded server\n+-- source include/not_embedded.inc\n+\n+--disable_warnings\n+drop schema if exists mysqltest_1;\n+--enable_warnings\n+\n+\n+#\n+# Bug #17139: ALTER TABLE ... DROP PARTITION should require DROP privilege\n+#\n+\n+create schema mysqltest_1;\n+use mysqltest_1;\n+\n+create table t1 (a int) partition by list (a) (partition p1 values in (1), partition p2 values in (2), partition p3 values in (3));\n+insert into t1 values (1),(2);\n+\n+grant select,alter on mysqltest_1.* to mysqltest_1@localhost;\n+\n+connect (conn1,localhost,mysqltest_1,,mysqltest_1);\n+show grants for current_user;\n+alter table t1 add b int;\n+--error ER_TABLEACCESS_DENIED_ERROR\n+alter table t1 drop partition p2;\n+disconnect conn1;\n+\n+connection default;\n+grant drop on mysqltest_1.* to mysqltest_1@localhost;\n+\n+connect (conn2,localhost,mysqltest_1,,mysqltest_1);\n+alter table t1 drop partition p2;\n+disconnect conn2;\n+\n+connection default;\n+revoke alter on mysqltest_1.* from mysqltest_1@localhost;\n+\n+connect (conn3,localhost,mysqltest_1,,mysqltest_1);\n+--error ER_TABLEACCESS_DENIED_ERROR\n+alter table t1 drop partition p3;\n+disconnect conn3;\n+\n+connection default;\n+\n+revoke select,alter,drop on mysqltest_1.* from mysqltest_1@localhost;\n+drop user mysqltest_1@localhost;\n+drop table t1;\n+drop schema mysqltest_1;\n+\n+--echo End of 5.1 tests\n",
+  "problem_statement": "Bug #17139: Partitions: unprivileged user can effectively drop table\n\nNow the DROP privilege is also required on a table in order to be able\nto drop a partition from the table using ALTER TABLE.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/partition_grant.result",
+      "mysql-test/t/partition_grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

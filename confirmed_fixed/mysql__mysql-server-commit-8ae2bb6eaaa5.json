@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-8ae2bb6eaaa5",
+  "base_commit": "1ab52ab7c79b401f22ae1ae0e5d1a481a9c5170e",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 187581307675..7d7595899d78 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -825,8 +825,6 @@ static my_bool acl_load(THD *thd, TABLE_LIST *tables)\n \n     char *password= get_field(&mem, table->field[2]);\n     uint password_len= password ? strlen(password) : 0;\n-    user.auth_string.str= password ? password : const_cast<char*>(\"\");\n-    user.auth_string.length= password_len;\n     set_user_salt(&user, password, password_len);\n \n     if (set_user_plugin(&user, password_len))\n@@ -915,7 +913,7 @@ static my_bool acl_load(THD *thd, TABLE_LIST *tables)\n           char *tmpstr= get_field(&mem, table->field[next_field++]);\n           if (tmpstr)\n           {\n-            if (user.auth_string.length)\n+            if (password_len)\n             {\n               sql_print_warning(\"'user' entry '%s@%s' has both a password \"\n                                 \"and an authentication plugin specified. The \"\n@@ -1483,8 +1481,8 @@ static void acl_insert_user(const char *user, const char *host,\n   {\n     acl_user.plugin= password_len == SCRAMBLED_PASSWORD_CHAR_LENGTH_323 ?\n       old_password_plugin_name : native_password_plugin_name;\n-    acl_user.auth_string.str= strmake_root(&mem, password, password_len);\n-    acl_user.auth_string.length= password_len;\n+    acl_user.auth_string.str= const_cast<char*>(\"\");\n+    acl_user.auth_string.length= 0;\n   }\n \n   acl_user.access=privileges;\n@@ -8380,7 +8378,7 @@ static bool parse_com_change_user_packet(MPVIO_EXT *mpvio, uint packet_length)\n         old_password_plugin, otherwise MySQL will think that server \n         and client plugins don't match.\n       */\n-      if (mpvio->acl_user->auth_string.length == 0)\n+      if (mpvio->acl_user->salt_len == 0)\n         mpvio->acl_user_plugin= old_password_plugin_name;\n     }\n   }\n@@ -8685,7 +8683,7 @@ static ulong parse_client_handshake_packet(MPVIO_EXT *mpvio,\n         old_password_plugin, otherwise MySQL will think that server \n         and client plugins don't match.\n       */\n-      if (mpvio->acl_user->auth_string.length == 0)\n+      if (mpvio->acl_user->salt_len == 0)\n         mpvio->acl_user_plugin= old_password_plugin_name;\n     }\n   }\n@@ -9473,7 +9471,7 @@ static int native_password_authenticate(MYSQL_PLUGIN_VIO *vio,\n #endif\n \n   if (pkt_len == 0) /* no password */\n-    DBUG_RETURN(info->auth_string[0] ? CR_ERROR : CR_OK);\n+    DBUG_RETURN(mpvio->acl_user->salt_len != 0 ? CR_ERROR : CR_OK);\n \n   info->password_used= PASSWORD_USED_YES;\n   if (pkt_len == SCRAMBLE_LENGTH)\n@@ -9522,7 +9520,7 @@ static int old_password_authenticate(MYSQL_PLUGIN_VIO *vio,\n     pkt_len= strnlen((char*)pkt, pkt_len);\n \n   if (pkt_len == 0) /* no password */\n-    return info->auth_string[0] ? CR_ERROR : CR_OK;\n+    return mpvio->acl_user->salt_len != 0 ? CR_ERROR : CR_OK;\n \n   if (secure_auth(mpvio))\n     return CR_ERROR;\n",
+  "test_patch": "diff --git a/mysql-test/r/plugin_auth.result b/mysql-test/r/plugin_auth.result\nindex 91a5d2d8478b..4d85da4569fd 100644\n--- a/mysql-test/r/plugin_auth.result\n+++ b/mysql-test/r/plugin_auth.result\n@@ -447,4 +447,11 @@ ORDER BY COLUMN_NAME;\n IS_NULLABLE\tCOLUMN_NAME\n YES\tauthentication_string\n YES\tplugin\n+#\n+# Bug #12610784: SET PASSWORD INCORRECTLY KEEP AN OLD EMPTY PASSWORD\n+#\n+CREATE USER bug12610784@localhost;\n+SET PASSWORD FOR bug12610784@localhost = PASSWORD('secret');\n+ERROR 28000: Access denied for user 'bug12610784'@'localhost' (using password: NO)\n+DROP USER bug12610784@localhost;\n End of 5.5 tests\ndiff --git a/mysql-test/t/plugin_auth.test b/mysql-test/t/plugin_auth.test\nindex a81cf4e4783e..0ec4a62afbdd 100644\n--- a/mysql-test/t/plugin_auth.test\n+++ b/mysql-test/t/plugin_auth.test\n@@ -512,4 +512,19 @@ SELECT IS_NULLABLE, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS\n   ORDER BY COLUMN_NAME;\n \n \n+--echo #\n+--echo # Bug #12610784: SET PASSWORD INCORRECTLY KEEP AN OLD EMPTY PASSWORD\n+--echo #\n+\n+CREATE USER bug12610784@localhost; \n+SET PASSWORD FOR bug12610784@localhost = PASSWORD('secret');\n+--disable_query_log\n+--error ER_ACCESS_DENIED_ERROR\n+connect(b12610784,localhost,bug12610784,,test);\n+--enable_query_log\n+connect(b12610784,localhost,bug12610784,secret,test);\n+connection default;\n+disconnect b12610784;\n+DROP USER bug12610784@localhost;\n+\n --echo End of 5.5 tests\n",
+  "problem_statement": "BUG 12610784: SET PASSWORD INCORRECTLY KEEP AN OLD EMPTY PASSWORD\n\nThe check for empty password in the user account was checking the wrong field.\nFixed to check the proper password hash.\nTest case added.\nFixed native_password and old_password plugins that suffered from the same\nproblems.\nUnambuguated the auth_string ACL_USER member : previously it was used for \nboth password and the authentication string (depending on the plugin). Now\nfixed to contain either the authentication string specified or empty string.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/plugin_auth.result",
+      "mysql-test/t/plugin_auth.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

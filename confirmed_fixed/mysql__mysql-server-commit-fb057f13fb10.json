@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-fb057f13fb10",
+  "base_commit": "55ee78ed86f18b51df439e6e19b65ebdab82d347",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 2e2a6f4d1b17..f6e94c118af6 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -3664,8 +3664,6 @@ mysql_execute_command(THD *thd)\n       my_error(ER_WRONG_DB_NAME, MYF(0), lex->name);\n       break;\n     }\n-    if (check_access(thd,SELECT_ACL,lex->name,0,1,0,is_schema_db(lex->name)))\n-      break;\n     res=mysqld_show_create_db(thd,lex->name,&lex->create_info);\n     break;\n   }\ndiff --git a/sql/sql_show.cc b/sql/sql_show.cc\nindex 025c344b86fc..badc15f2ab50 100644\n--- a/sql/sql_show.cc\n+++ b/sql/sql_show.cc\n@@ -482,12 +482,6 @@ bool mysqld_show_create_db(THD *thd, char *dbname,\n   Protocol *protocol=thd->protocol;\n   DBUG_ENTER(\"mysql_show_create_db\");\n \n-  if (check_db_name(dbname))\n-  {\n-    my_error(ER_WRONG_DB_NAME, MYF(0), dbname);\n-    DBUG_RETURN(TRUE);\n-  }\n-\n #ifndef NO_EMBEDDED_ACCESS_CHECKS\n   if (test_all_bits(sctx->master_access, DB_ACLS))\n     db_access=DB_ACLS;\n",
+  "test_patch": "diff --git a/mysql-test/r/show_check.result b/mysql-test/r/show_check.result\nindex de2463611287..ce710eebbd36 100644\n--- a/mysql-test/r/show_check.result\n+++ b/mysql-test/r/show_check.result\n@@ -397,7 +397,8 @@ ERROR 42000: Access denied for user 'mysqltest_2'@'localhost' to database 'mysql\n select * from mysqltest.t1;\n ERROR 42000: SELECT command denied to user 'mysqltest_3'@'localhost' for table 't1'\n show create database mysqltest;\n-ERROR 42000: Access denied for user 'mysqltest_3'@'localhost' to database 'mysqltest'\n+Database\tCreate Database\n+mysqltest\tCREATE DATABASE `mysqltest` /*!40100 DEFAULT CHARACTER SET latin1 */\n drop table mysqltest.t1;\n drop database mysqltest;\n set names binary;\n@@ -565,4 +566,19 @@ DROP TABLE urkunde;\n SHOW TABLES FROM non_existing_database;\n ERROR 42000: Unknown database 'non_existing_database'\n SHOW AUTHORS;\n+create database mysqltest;\n+show create database mysqltest;\n+Database\tCreate Database\n+mysqltest\tCREATE DATABASE `mysqltest` /*!40100 DEFAULT CHARACTER SET latin1 */\n+create table mysqltest.t1(a int);\n+insert into mysqltest.t1 values(1);\n+grant select on `mysqltest`.`t1` to mysqltest_4@localhost;\n+show create database mysqltest;\n+Database\tCreate Database\n+mysqltest\tCREATE DATABASE `mysqltest` /*!40100 DEFAULT CHARACTER SET latin1 */\n+delete from mysql.user where user='mysqltest_4';\n+delete from mysql.db where user='mysqltest_4';\n+delete from mysql.tables_priv where user='mysqltest_4';\n+flush privileges;\n+drop database mysqltest;\n End of 5.1 tests\ndiff --git a/mysql-test/t/show_check.test b/mysql-test/t/show_check.test\nindex 796b855b1df6..b0d2b43204cb 100644\n--- a/mysql-test/t/show_check.test\n+++ b/mysql-test/t/show_check.test\n@@ -312,7 +312,6 @@ connect (con3,localhost,mysqltest_3,,test);\n connection con3;\n --error 1142\n select * from mysqltest.t1;\n---error 1044\n show create database mysqltest;\n drop table mysqltest.t1;\n drop database mysqltest;\n@@ -431,4 +430,22 @@ SHOW TABLES FROM non_existing_database;\n SHOW AUTHORS;\n --enable_result_log\n \n+#\n+# Test for bug #9785 SELECT privilege for the whole database is needed to do SHOW CREATE DATABASE\n+#\n+create database mysqltest;\n+show create database mysqltest;\n+create table mysqltest.t1(a int);\n+insert into mysqltest.t1 values(1);\n+grant select on `mysqltest`.`t1` to mysqltest_4@localhost;\n+connect (con4,localhost,mysqltest_4,,mysqltest);\n+connection con4;\n+show create database mysqltest;\n+connection default;\n+delete from mysql.user where user='mysqltest_4';\n+delete from mysql.db where user='mysqltest_4';\n+delete from mysql.tables_priv where user='mysqltest_4';\n+flush privileges;\n+drop database mysqltest;\n+\n --echo End of 5.1 tests\n",
+  "problem_statement": "Fix for bug#9785 SELECT privilege for the whole database \n                 is needed to do SHOW CREATE DATABASE\n  To allow SHOW CREATE DATABASE when the user can use the database",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/show_check.result",
+      "mysql-test/t/show_check.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

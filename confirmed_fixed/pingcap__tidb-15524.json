@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-15524",
+  "base_commit": "20b555cfad46e52ae8e5bdb316fa4a19f779e8e3",
+  "patch": "diff --git a/executor/show.go b/executor/show.go\nindex aa03fccb9461e..75fa3e1899bf1 100644\n--- a/executor/show.go\n+++ b/executor/show.go\n@@ -1164,6 +1164,19 @@ func (e *ShowExec) fetchShowGrants() error {\n \tif checker == nil {\n \t\treturn errors.New(\"miss privilege checker\")\n \t}\n+\tsessVars := e.ctx.GetSessionVars()\n+\tif !e.User.CurrentUser {\n+\t\tuserName := sessVars.User.AuthUsername\n+\t\thostName := sessVars.User.AuthHostname\n+\t\t// Show grant user requires the SELECT privilege on mysql schema.\n+\t\t// Ref https://dev.mysql.com/doc/refman/8.0/en/show-grants.html\n+\t\tif userName != e.User.Username || hostName != e.User.Hostname {\n+\t\t\tactiveRoles := sessVars.ActiveRoles\n+\t\t\tif !checker.RequestVerification(activeRoles, mysql.SystemDB, \"\", \"\", mysql.SelectPriv) {\n+\t\t\t\treturn ErrDBaccessDenied.GenWithStackByArgs(userName, hostName, mysql.SystemDB)\n+\t\t\t}\n+\t\t}\n+\t}\n \tfor _, r := range e.Roles {\n \t\tif r.Hostname == \"\" {\n \t\t\tr.Hostname = \"%\"\n",
+  "test_patch": "diff --git a/executor/show_test.go b/executor/show_test.go\nindex 7e0ee6301b23a..0de40adbd88c3 100644\n--- a/executor/show_test.go\n+++ b/executor/show_test.go\n@@ -139,6 +139,19 @@ func (s *testSuite5) TestShowErrors(c *C) {\n \ttk.MustQuery(\"show errors\").Check(testutil.RowsWithSep(\"|\", \"Error|1050|Table 'test.show_errors' already exists\"))\n }\n \n+func (s *testSuite5) TestShowGrantsPrivilege(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"create user show_grants\")\n+\ttk.MustExec(\"show grants for show_grants\")\n+\ttk1 := testkit.NewTestKit(c, s.store)\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Assert(err, IsNil)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"show_grants\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\ttk1.Se = se\n+\terr = tk1.QueryToErr(\"show grants for root\")\n+\tc.Assert(err.Error(), Equals, executor.ErrDBaccessDenied.GenWithStackByArgs(\"show_grants\", \"%\", mysql.SystemDB).Error())\n+}\n+\n func (s *testSuite5) TestIssue3641(c *C) {\n \ttk := testkit.NewTestKit(c, s.store)\n \t_, err := tk.Exec(\"show tables;\")\n@@ -156,7 +169,7 @@ func (s *testSuite5) TestIssue10549(c *C) {\n \ttk.MustExec(\"GRANT 'app_developer' TO 'dev';\")\n \ttk.MustExec(\"SET DEFAULT ROLE app_developer TO 'dev';\")\n \n-\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"dev\", Hostname: \"localhost\", AuthUsername: \"dev\", AuthHostname: \"localhost\"}, nil, nil), IsTrue)\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"dev\", Hostname: \"%\", AuthUsername: \"dev\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n \ttk.MustQuery(\"SHOW DATABASES;\").Check(testkit.Rows(\"INFORMATION_SCHEMA\", \"newdb\"))\n \ttk.MustQuery(\"SHOW GRANTS;\").Check(testkit.Rows(\"GRANT USAGE ON *.* TO 'dev'@'%'\", \"GRANT ALL PRIVILEGES ON newdb.* TO 'dev'@'%'\", \"GRANT 'app_developer'@'%' TO 'dev'@'%'\"))\n \ttk.MustQuery(\"SHOW GRANTS FOR CURRENT_USER\").Check(testkit.Rows(\"GRANT USAGE ON *.* TO 'dev'@'%'\", \"GRANT 'app_developer'@'%' TO 'dev'@'%'\"))\n",
+  "problem_statement": "privilege: fix show grants privilege check\n\n`SHOW GRANTS` need `SELECT` privilege on `mysql` database, but tidb dosen't check. \r\n\r\n### What is changed and how it works?\r\nadd privilege check for `show grants`\r\n\r\n### Related changes\r\n\r\n- Need to cherry-pick to the release branch",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/show_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

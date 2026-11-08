@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-4dffa7b5c5ba",
+  "base_commit": "4a8a6f605d3f9c8cbca14a04cb75c6d2a29fb6f6",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex b5e6b6540c5c7..04c3450dd98e9 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -1468,22 +1468,6 @@ static bool deny_updates_if_read_only_option(THD *thd, TABLE_LIST *all_tables)\n }\n \n #ifdef WITH_WSREP\n-static my_bool wsrep_read_only_option(THD *thd, TABLE_LIST *all_tables)\n-{\n-  int opt_readonly_saved = opt_readonly;\n-  ulong flag_saved = (ulong)(thd->security_ctx->master_access & SUPER_ACL);\n-\n-  opt_readonly = 0;\n-  thd->security_ctx->master_access &= ~SUPER_ACL;\n-\n-  my_bool ret = !deny_updates_if_read_only_option(thd, all_tables);\n-\n-  opt_readonly = opt_readonly_saved;\n-  thd->security_ctx->master_access |= flag_saved;\n-\n-  return ret;\n-}\n-\n static void wsrep_copy_query(THD *thd)\n {\n   thd->wsrep_retry_command   = thd->get_command();\n@@ -7807,7 +7791,7 @@ static bool wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,\n {\n   bool is_autocommit=\n     !thd->in_multi_stmt_transaction_mode()                  &&\n-    wsrep_read_only_option(thd, thd->lex->query_tables);\n+    !thd->wsrep_applier;\n   bool retry_autocommit;\n   do\n   {\n",
+  "test_patch": "diff --git a/mysql-test/suite/galera/r/galera_read_only.result b/mysql-test/suite/galera/r/galera_read_only.result\nindex fe8b45fa596ee..e7e18ca814594 100644\n--- a/mysql-test/suite/galera/r/galera_read_only.result\n+++ b/mysql-test/suite/galera/r/galera_read_only.result\n@@ -17,10 +17,18 @@ connect foo_node_2,127.0.0.1,foo,,test,$port_2,;\n connection foo_node_2;\n INSERT INTO t1 VALUES (2);\n ERROR HY000: The MariaDB server is running with the --read-only option so it cannot execute this statement\n+CREATE TEMPORARY TABLE t2(id int not null primary key) engine=innodb;\n+INSERT INTO t2 values (1);\n+DROP TABLE t2;\n connection node_2;\n-SELECT COUNT(*) = 1 FROM t1;\n-COUNT(*) = 1\n+SELECT COUNT(*) AS EXPECT_1 FROM t1;\n+EXPECT_1\n 1\n+connection node_2;\n+SET GLOBAL read_only=TRUE;\n+CREATE TEMPORARY TABLE t2(id int not null primary key) engine=innodb;\n+INSERT INTO t2 values (1);\n+DROP TABLE t2;\n SET GLOBAL read_only=FALSE;\n DROP TABLE t1;\n DROP USER foo@localhost;\ndiff --git a/mysql-test/suite/galera/t/galera_read_only.test b/mysql-test/suite/galera/t/galera_read_only.test\nindex c0fa4af07e0a9..56fe2fdd91001 100644\n--- a/mysql-test/suite/galera/t/galera_read_only.test\n+++ b/mysql-test/suite/galera/t/galera_read_only.test\n@@ -28,9 +28,20 @@ CREATE USER foo@localhost;\n --connection foo_node_2\n --error ER_OPTION_PREVENTS_STATEMENT\n INSERT INTO t1 VALUES (2);\n+# Writes to temporary tables are allowed\n+CREATE TEMPORARY TABLE t2(id int not null primary key) engine=innodb;\n+INSERT INTO t2 values (1);\n+DROP TABLE t2;\n \n --connection node_2\n-SELECT COUNT(*) = 1 FROM t1;\n+SELECT COUNT(*) AS EXPECT_1 FROM t1;\n+\n+--connection node_2\n+SET GLOBAL read_only=TRUE;\n+# Writes to temporary tables are allowed\n+CREATE TEMPORARY TABLE t2(id int not null primary key) engine=innodb;\n+INSERT INTO t2 values (1);\n+DROP TABLE t2;\n \n # Cleanup\n SET GLOBAL read_only=FALSE;\n",
+  "problem_statement": "Possible to write/update with read_only=ON and not a SUPER privilege\n\nAccoring to cluster_log the the node become writeable\r\n{noformat}\r\ntimestamp mariadb is not read_only!\r\n{noformat}\r\n\r\nSuspect: wsrep_read_only_option that was removed in commit d54bc3c0d but has reappeared in Galera4 commit.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/galera/r/galera_read_only.result",
+      "mysql-test/suite/galera/t/galera_read_only.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

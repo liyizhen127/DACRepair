@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-398a26f93b46",
+  "base_commit": "ba7f6f6ce9bd8a43cc01a3153dcb38bd71f90cd1",
+  "patch": "diff --git a/sql/sql_admin.cc b/sql/sql_admin.cc\nindex d8be3ee49664..afb8ebbee585 100644\n--- a/sql/sql_admin.cc\n+++ b/sql/sql_admin.cc\n@@ -1463,6 +1463,8 @@ bool Sql_cmd_alter_user_default_role::execute(THD *thd)\n     LEX_USER *user;\n     while((user= it++))\n     {\n+      /* Check for CURRENT_USER token */\n+      user= get_current_user(thd, user);\n       if (strcmp(thd->security_context()->priv_user().str,\n                  user->user.str)  != 0)\n       {\n@@ -1506,9 +1508,9 @@ bool Sql_cmd_alter_user_default_role::execute(THD *thd)\n              }\n           }\n         }\n-      }\n-    }\n-  }\n+      } // end else\n+    } // end while\n+  } // end scope\n   List_of_auth_id_refs authids;\n   if (roles != 0)\n   {\n",
+  "test_patch": "diff --git a/mysql-test/r/roles.result b/mysql-test/r/roles.result\nindex d33b5aa22a99..126f34d7e36c 100644\n--- a/mysql-test/r/roles.result\n+++ b/mysql-test/r/roles.result\n@@ -369,6 +369,8 @@ ALTER USER `joe`@`localhost` DEFAULT ROLE wp_administrators;\n SELECT * FROM mysql.default_roles;\n HOST\tUSER\tDEFAULT_ROLE_HOST\tDEFAULT_ROLE_USER\n localhost\tjoe\t%\twp_administrators\n+# CURRENT_USER shouldn't crash the server.\n+ALTER USER CURRENT_USER() DEFAULT ROLE NONE;\n ++ Flushing and reloading privileges shouldn't break the server\n FLUSH PRIVILEGES;\n # Restart the server and verify that the role graph and default roles\ndiff --git a/mysql-test/t/roles.test b/mysql-test/t/roles.test\nindex e953076443a4..1d8beeba5b67 100644\n--- a/mysql-test/t/roles.test\n+++ b/mysql-test/t/roles.test\n@@ -192,6 +192,8 @@ ALTER USER `joe`@`localhost` DEFAULT ROLE wp_administrators,engineering;\n SELECT * FROM mysql.default_roles;\n ALTER USER `joe`@`localhost` DEFAULT ROLE wp_administrators;\n SELECT * FROM mysql.default_roles;\n+--echo # CURRENT_USER shouldn't crash the server.\n+ALTER USER CURRENT_USER() DEFAULT ROLE NONE;\n \n --echo ++ Flushing and reloading privileges shouldn't break the server\n FLUSH PRIVILEGES;\n",
+  "problem_statement": "Bug#24844301 ALTER USER CURRENT_USER() DEFAULT ROLE FAILS\n\nThe current_user token isn't initialized during parsing and\nduring the semantic analysis the all user tokens must be filtered\nso that null pointers are replaced with the current user context.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/roles.result",
+      "mysql-test/t/roles.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

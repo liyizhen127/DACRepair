@@ -1,0 +1,36 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-a8261c766067",
+  "base_commit": "ac5cea86e8a474e13d7dcd22a4a7fabf722c5514",
+  "patch": "diff --git a/src/backend/commands/user.c b/src/backend/commands/user.c\nindex be11c49f919d0..04b270c08a8ee 100644\n--- a/src/backend/commands/user.c\n+++ b/src/backend/commands/user.c\n@@ -825,7 +825,7 @@ AlterRole(ParseState *pstate, AlterRoleStmt *stmt)\n \t}\n \n \t/* To add or drop members, you need ADMIN OPTION. */\n-\tif (drolemembers && !is_admin_of_role(currentUserId, roleid))\n+\tif (drolemembers && !has_admin_privs_of_role(currentUserId, roleid))\n \t\tereport(ERROR,\n \t\t\t\t(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),\n \t\t\t\t errmsg(\"permission denied to alter role\"),\n@@ -2165,7 +2165,7 @@ check_role_membership_authorization(Oid currentUserId, Oid roleid,\n \t\t/*\n \t\t * Otherwise, must have admin option on the role to be changed.\n \t\t */\n-\t\tif (!is_admin_of_role(currentUserId, roleid))\n+\t\tif (!has_admin_privs_of_role(currentUserId, roleid))\n \t\t{\n \t\t\tif (is_grant)\n \t\t\t\tereport(ERROR,\ndiff --git a/src/backend/utils/adt/acl.c b/src/backend/utils/adt/acl.c\nindex e2bfa77f498b8..090a69be071a4 100644\n--- a/src/backend/utils/adt/acl.c\n+++ b/src/backend/utils/adt/acl.c\n@@ -5442,6 +5442,8 @@ is_member_of_role_nosuper(Oid member, Oid role)\n  * Is member an admin of role?\tThat is, is member the role itself (subject to\n  * restrictions below), a member (directly or indirectly) WITH ADMIN OPTION,\n  * or a superuser?\n+ *\n+ * See also has_admin_privs_of_role() below.\n  */\n bool\n is_admin_of_role(Oid member, Oid role)\n@@ -5459,6 +5461,31 @@ is_admin_of_role(Oid member, Oid role)\n \treturn OidIsValid(admin_role);\n }\n \n+/*\n+ * Does member hold ADMIN OPTION on role, either directly or through a role\n+ * whose privileges member inherits?\n+ *\n+ * Unlike is_admin_of_role(), this does not recurse through grants that are not\n+ * inherited.  Callers that must go on to record a grantor for the operation\n+ * should use this rather than is_admin_of_role(), since select_best_admin()\n+ * searches the same way.\n+ */\n+bool\n+has_admin_privs_of_role(Oid member, Oid role)\n+{\n+\tOid\t\t\tadmin_role;\n+\n+\tif (superuser_arg(member))\n+\t\treturn true;\n+\n+\t/* By policy, a role cannot have WITH ADMIN OPTION on itself. */\n+\tif (member == role)\n+\t\treturn false;\n+\n+\t(void) roles_is_member_of(member, ROLERECURSE_PRIVS, role, &admin_role);\n+\treturn OidIsValid(admin_role);\n+}\n+\n /*\n  * Find a role whose privileges \"member\" inherits which has ADMIN OPTION\n  * on \"role\", ignoring super-userness.\ndiff --git a/src/include/utils/acl.h b/src/include/utils/acl.h\nindex a16bf2fa15ad1..0278d1e6a52a7 100644\n--- a/src/include/utils/acl.h\n+++ b/src/include/utils/acl.h\n@@ -216,6 +216,7 @@ extern void check_can_set_role(Oid member, Oid role);\n extern bool is_member_of_role(Oid member, Oid role);\n extern bool is_member_of_role_nosuper(Oid member, Oid role);\n extern bool is_admin_of_role(Oid member, Oid role);\n+extern bool has_admin_privs_of_role(Oid member, Oid role);\n extern Oid\tselect_best_admin(Oid member, Oid role);\n extern Oid\tget_role_oid(const char *rolname, bool missing_ok);\n extern Oid\tget_role_oid_or_public(const char *rolname);\n",
+  "test_patch": "diff --git a/src/test/regress/expected/privileges.out b/src/test/regress/expected/privileges.out\nindex ca693308e79dd..ce76a4d2f4d81 100644\n--- a/src/test/regress/expected/privileges.out\n+++ b/src/test/regress/expected/privileges.out\n@@ -78,6 +78,15 @@ SELECT grantor::regrole FROM pg_auth_members WHERE roleid = 'regress_priv_user1'\n  regress_priv_user2\n (1 row)\n \n+RESET ROLE;\n+REVOKE INHERIT OPTION FOR regress_priv_user2 FROM regress_priv_user3;\n+SET ROLE regress_priv_user3;\n+GRANT regress_priv_user1 TO regress_priv_user5; -- fail\n+ERROR:  permission denied to grant role \"regress_priv_user1\"\n+DETAIL:  Only roles with the ADMIN option on role \"regress_priv_user1\" may grant this role.\n+ALTER GROUP regress_priv_user1 ADD USER regress_priv_user5; -- fail\n+ERROR:  permission denied to alter role\n+DETAIL:  Only roles with the ADMIN option on role \"regress_priv_user1\" may add or drop members.\n RESET ROLE;\n REVOKE regress_priv_user2 FROM regress_priv_user3;\n REVOKE regress_priv_user1 FROM regress_priv_user2 CASCADE;\ndiff --git a/src/test/regress/sql/privileges.sql b/src/test/regress/sql/privileges.sql\nindex ac91511f4510e..9f7767fb2b9f1 100644\n--- a/src/test/regress/sql/privileges.sql\n+++ b/src/test/regress/sql/privileges.sql\n@@ -60,6 +60,11 @@ SET ROLE regress_priv_user3;\n GRANT regress_priv_user1 TO regress_priv_user4;\n SELECT grantor::regrole FROM pg_auth_members WHERE roleid = 'regress_priv_user1'::regrole and member = 'regress_priv_user4'::regrole;\n RESET ROLE;\n+REVOKE INHERIT OPTION FOR regress_priv_user2 FROM regress_priv_user3;\n+SET ROLE regress_priv_user3;\n+GRANT regress_priv_user1 TO regress_priv_user5; -- fail\n+ALTER GROUP regress_priv_user1 ADD USER regress_priv_user5; -- fail\n+RESET ROLE;\n REVOKE regress_priv_user2 FROM regress_priv_user3;\n REVOKE regress_priv_user1 FROM regress_priv_user2 CASCADE;\n \n",
+  "problem_statement": "Fix authorization check for role membership changes.\n\nPresently, check_role_membership_authorization() decides whether\nthe current user may grant or revoke membership in a role by\ncalling is_admin_of_role(), which recurses through all grants,\nwhile it chooses the grantor to record for the resulting entry by\ncalling select_best_admin(), which recurses only through inherited\ngrants.  When the two disagree, the permission check passes and the\ngrantor lookup then comes up empty, so the user sees an internal\n\"no possible grantors\" error.  ALTER GROUP ... ADD USER reaches the\nsame error through the separate check in AlterRole().\n\nTo fix, teach both checks to search the same way\nselect_best_admin() does via a new has_admin_privs_of_role().  The\nnew check passes exactly when the grantor lookup was going to\nsucceed, so nothing that works today starts failing; the internal\nerror simply becomes a proper permission error.  Note that this\nleaves the other callers of is_admin_of_role() alone, so a role\nreachable only through a non-inherited grant can still be dropped,\nrenamed, or altered.  Whether that ought to change as well is left\nas a future exercise.\n\nOversight in commit ce6b672e44.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "implemented",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64",
+    "prebuilt_donor": {
+      "image_id": "sha256:c1c3b6a381eae7e8c58d810c07d67fb854c963301aec3051daa14d2678b3ba05",
+      "reuse_audit": "test_patch_only_uncompiled_sql_tcl"
+    }
+  },
+  "evaluation_spec": {
+    "mode": "native",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/privileges.out",
+      "src/test/regress/sql/privileges.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [
+      "privileges"
+    ],
+    "test_status": "upstream_unexecuted",
+    "baseline_diff_contains": [
+      "+ERROR:  no possible grantors",
+      "-ERROR:  permission denied to grant role"
+    ]
+  },
+  "blockers": []
+}

@@ -1,0 +1,27 @@
+{
+  "repo": "duckdb/duckdb",
+  "instance_id": "duckdb__duckdb-18176",
+  "base_commit": "4844e066a1b0da505444cf99ae068a4c8d80052d",
+  "patch": "diff --git a/src/main/config.cpp b/src/main/config.cpp\nindex ac41cea7a654..cc8e26ad1129 100644\n--- a/src/main/config.cpp\n+++ b/src/main/config.cpp\n@@ -717,19 +717,15 @@ bool DBConfig::CanAccessFile(const string &input_path, FileType type) {\n \t\t\tpath += \"/\";\n \t\t}\n \t}\n-\tauto start_bound = options.allowed_directories.lower_bound(path);\n-\tif (start_bound != options.allowed_directories.begin()) {\n-\t\t--start_bound;\n-\t}\n-\tauto end_bound = options.allowed_directories.upper_bound(path);\n \n \tstring prefix;\n-\tfor (auto it = start_bound; it != end_bound; ++it) {\n-\t\tif (StringUtil::StartsWith(path, *it)) {\n-\t\t\tprefix = *it;\n+\tfor (const auto &allowed_directory : options.allowed_directories) {\n+\t\tif (StringUtil::StartsWith(path, allowed_directory)) {\n+\t\t\tprefix = allowed_directory;\n \t\t\tbreak;\n \t\t}\n \t}\n+\n \tif (prefix.empty()) {\n \t\t// no common prefix found - path is not inside an allowed directory\n \t\treturn false;\n",
+  "test_patch": "diff --git a/test/sql/settings/allowed_directories.test b/test/sql/settings/allowed_directories.test\nindex 772879e64a55..6e259e12d560 100644\n--- a/test/sql/settings/allowed_directories.test\n+++ b/test/sql/settings/allowed_directories.test\n@@ -19,7 +19,7 @@ statement ok\n RESET allowed_directories\n \n statement ok\n-SET allowed_directories=['data/csv/glob', 'data/parquet-testing/glob', 'data/json', '__TEST_DIR__']\n+SET allowed_directories=['data/csv/glob', 'data/csv/glob/1', 'data/parquet-testing/glob', 'data/json', '__TEST_DIR__']\n \n statement ok\n SET enable_external_access=false\n",
+  "problem_statement": "fix bug with allowed_paths\n\n### Problem\r\nThe `allowed_directories` values was not searched correctly leading to permissions errors in certain cases.\r\n\r\n### Fix\r\nCurrent behaviour tried to use an `std::set ` to efficiently do prefix matches. The implementation was actually wrong though.  It used the `set::upper_bound` and `set::lower_bound` to limit which paths should be compared for a prefix match. However this does not work. These functions return the exact same value unless the exact path you search for is in the set.\r\n\r\nI think the `set` can not be used for efficient prefix matching like this. Because this is not performance critical code anyway I've just switched to a O(N) search over the set of prefixes. Proper solution would be to use a trie, but we don't have a simple implementation handy afaik.\r\n\r\nMade a small tweak to one of the tests to trigger this error and confirm the fix",
+  "environment_spec": {
+    "engine": "duckdb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "test/sql/settings/allowed_directories.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

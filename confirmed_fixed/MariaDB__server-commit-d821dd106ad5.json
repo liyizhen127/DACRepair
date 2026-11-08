@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-d821dd106ad5",
+  "base_commit": "23b1b69b101f8f22319a8e661ebe8b4587c435d4",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex bbd1dd8688023..502e9ff83f225 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -7559,9 +7559,6 @@ bool mysql_show_grants(THD *thd, LEX_USER *lex_user)\n     DBUG_RETURN(TRUE);\n   }\n \n-  mysql_rwlock_rdlock(&LOCK_grant);\n-  mysql_mutex_lock(&acl_cache->lock);\n-\n   if (lex_user->user.str == current_user.str)\n   {\n     username= thd->security_ctx->priv_user;\n@@ -7579,23 +7576,28 @@ bool mysql_show_grants(THD *thd, LEX_USER *lex_user)\n   }\n   else\n   {\n-    lex_user= get_current_user(thd, lex_user, false);\n+    Security_context *sctx= thd->security_ctx;\n+    bool do_check_access;\n+\n+    lex_user= get_current_user(thd, lex_user);\n     if (!lex_user)\n-    {\n-      mysql_mutex_unlock(&acl_cache->lock);\n-      mysql_rwlock_unlock(&LOCK_grant);\n       DBUG_RETURN(TRUE);\n-    }\n \n     if (lex_user->is_role())\n     {\n       rolename= lex_user->user.str;\n+      do_check_access= strcmp(rolename, sctx->priv_role);\n     }\n     else\n     {\n       username= lex_user->user.str;\n       hostname= lex_user->host.str;\n+      do_check_access= strcmp(username, sctx->priv_user) ||\n+                       strcmp(hostname, sctx->priv_host);\n     }\n+\n+    if (do_check_access && check_access(thd, SELECT_ACL, \"mysql\", 0, 0, 1, 0))\n+      DBUG_RETURN(TRUE);\n   }\n   DBUG_ASSERT(rolename || username);\n \n@@ -7610,12 +7612,10 @@ bool mysql_show_grants(THD *thd, LEX_USER *lex_user)\n   field_list.push_back(field);\n   if (protocol->send_result_set_metadata(&field_list,\n                                          Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF))\n-  {\n-    mysql_mutex_unlock(&acl_cache->lock);\n-    mysql_rwlock_unlock(&LOCK_grant);\n-\n     DBUG_RETURN(TRUE);\n-  }\n+\n+  mysql_rwlock_rdlock(&LOCK_grant);\n+  mysql_mutex_lock(&acl_cache->lock);\n \n   if (username)\n   {\ndiff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex d2fed787ba927..b91455888b8c0 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -4374,21 +4374,10 @@ case SQLCOM_PREPARE:\n   case SQLCOM_SHOW_GRANTS:\n   {\n     LEX_USER *grant_user= lex->grant_user;\n-    Security_context *sctx= thd->security_ctx;\n     if (!grant_user)\n       goto error;\n \n-    if (grant_user->user.str && !strcmp(sctx->priv_user, grant_user->user.str) &&\n-        grant_user->host.str && !strcmp(sctx->priv_host, grant_user->host.str))\n-      grant_user->user= current_user;\n-\n-    if (grant_user->user.str == current_user.str ||\n-        grant_user->user.str == current_role.str ||\n-        grant_user->user.str == current_user_and_current_role.str ||\n-        !check_access(thd, SELECT_ACL, \"mysql\", NULL, NULL, 1, 0))\n-    {\n-      res = mysql_show_grants(thd, grant_user);\n-    }\n+    res = mysql_show_grants(thd, grant_user);\n     break;\n   }\n #endif\n",
+  "test_patch": "diff --git a/mysql-test/r/grant5.result b/mysql-test/r/grant5.result\nindex 2df394c0432f5..d7f3b6812bbeb 100644\n--- a/mysql-test/r/grant5.result\n+++ b/mysql-test/r/grant5.result\n@@ -1,2 +1,18 @@\n SHOW GRANTS FOR root@invalid_host;\n ERROR 42000: There is no such grant defined for user 'root' on host 'invalid_host'\n+create user test;\n+create user foo;\n+create role foo;\n+grant foo to test;\n+set role foo;\n+show grants for test;\n+Grants for test@%\n+GRANT foo TO 'test'@'%'\n+GRANT USAGE ON *.* TO 'test'@'%'\n+show grants for foo;\n+Grants for foo\n+GRANT USAGE ON *.* TO 'foo'\n+show grants for foo@'%';\n+ERROR 42000: Access denied for user 'test'@'%' to database 'mysql'\n+drop user test, foo;\n+drop role foo;\ndiff --git a/mysql-test/t/grant5.test b/mysql-test/t/grant5.test\nindex db953d97fb30f..14f2fd650201a 100644\n--- a/mysql-test/t/grant5.test\n+++ b/mysql-test/t/grant5.test\n@@ -5,3 +5,21 @@\n #\n --error ER_NONEXISTING_GRANT\n SHOW GRANTS FOR root@invalid_host;\n+\n+#\n+# MDEV-9580 SHOW GRANTS FOR <current_user> fails\n+#\n+create user test;\n+create user foo;\n+create role foo;\n+grant foo to test;\n+--connect (conn_1, localhost, test,,)\n+set role foo;\n+show grants for test; # user\n+show grants for foo;  # role\n+--error ER_DBACCESS_DENIED_ERROR\n+show grants for foo@'%'; # user\n+--connection default\n+drop user test, foo;\n+drop role foo;\n+\n",
+  "problem_statement": "SHOW GRANTS FOR <current_user> fails\n\nIf <user> does not have SELECT privilege on the `mysql` database and <user> is the current user the \"SHOW GRANTS FOR <user>\" (without hostname specified) statement fails with:\n{code}\n1044: Access denied for user '<user>'@'%' to database 'mysql'\n{code}\n\nThis can be reproduced with the following test:\n{code}\nCREATE USER test;\nconnect (conn_1, localhost, test,,);\nSHOW GRANTS FOR test;\n{code}\n\nThis worked in 10.0.12, and seems to have been broken as part of the fix for MDEV-6625.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant5.result",
+      "mysql-test/t/grant5.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

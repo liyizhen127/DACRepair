@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-36778",
+  "base_commit": "34d877ad2d0f505076c056d526537037b27205fb",
+  "patch": "diff --git a/executor/grant.go b/executor/grant.go\nindex b0f29e586fb7a..219f8b663b77d 100644\n--- a/executor/grant.go\n+++ b/executor/grant.go\n@@ -107,8 +107,9 @@ func (e *GrantExec) Next(ctx context.Context, req *chunk.Chunk) error {\n \t\t\t\treturn err\n \t\t\t}\n \t\t}\n-\t\t// Note the table name compare is case sensitive here.\n-\t\tif tbl != nil && tbl.Meta().Name.String() != e.Level.TableName {\n+\t\t// Note the table name compare is not case sensitive here.\n+\t\t// In TiDB, system variable lower_case_table_names = 2 which means name comparisons are not case-sensitive.\n+\t\tif tbl != nil && tbl.Meta().Name.L != strings.ToLower(e.Level.TableName) {\n \t\t\treturn infoschema.ErrTableNotExists.GenWithStackByArgs(dbName, e.Level.TableName)\n \t\t}\n \t\tif len(e.Level.DBName) > 0 {\n",
+  "test_patch": "diff --git a/executor/grant_test.go b/executor/grant_test.go\nindex 416b13f1518aa..2c06b2fbb9b5c 100644\n--- a/executor/grant_test.go\n+++ b/executor/grant_test.go\n@@ -441,9 +441,9 @@ func TestGrantOnNonExistTable(t *testing.T) {\n \trequire.True(t, terror.ErrorEqual(err, infoschema.ErrTableNotExists))\n \n \ttk.MustExec(\"create table if not exists xx (id int)\")\n-\t// Case sensitive\n-\t_, err = tk.Exec(\"grant Select,Insert on XX to 'genius'\")\n-\trequire.True(t, terror.ErrorEqual(err, infoschema.ErrTableNotExists))\n+\t// Case insensitive, differ from MySQL default behaviour.\n+\t// In TiDB, system variable lower_case_table_names = 2, which means compare table name using lower case.\n+\ttk.MustExec(\"grant Select,Insert on XX to 'genius'\")\n \n \t_, err = tk.Exec(\"grant Select,Insert on xx to 'genius'\")\n \trequire.NoError(t, err)\n@@ -576,3 +576,21 @@ func TestNonExistTableIllegalGrant(t *testing.T) {\n \t// Column level, not existing table, illegal privilege\n \ttk.MustGetErrCode(\"grant create temporary tables (NotExistsCol) on NotExistsD29302.NotExistsT29302 to u29302;\", mysql.ErrWrongUsage)\n }\n+\n+func TestIssue34610(t *testing.T) {\n+\tstore := testkit.CreateMockStore(t)\n+\ttk := testkit.NewTestKit(t, store)\n+\ttk.MustExec(\"DROP DATABASE IF EXISTS d1;\")\n+\ttk.MustExec(\"CREATE DATABASE d1;\")\n+\ttk.MustExec(\"USE d1;\")\n+\ttk.MustExec(\"CREATE USER user_1@localhost;\")\n+\tdefer func() {\n+\t\ttk.MustExec(\"DROP DATABASE d1;\")\n+\t\ttk.MustExec(\"DROP USER user_1@localhost;\")\n+\t}()\n+\n+\ttk.MustExec(\"CREATE TABLE T1(f1 INT);\")\n+\ttk.MustGetErrCode(\"CREATE TABLE t1(f1 INT);\", mysql.ErrTableExists)\n+\ttk.MustExec(\"GRANT SELECT ON T1 to user_1@localhost;\")\n+\ttk.MustExec(\"GRANT SELECT ON t1 to user_1@localhost;\")\n+}\n",
+  "problem_statement": "`GRANT` is not case insensitive in GRANT SELECT ON tablename\n\n## Bug Report\r\n\r\n### 1. Minimal reproduce step \r\n```sql\r\nDROP DATABASE IF EXISTS d1; \r\n\r\nCREATE DATABASE d1;\r\nUSE d1;\r\nCREATE USER user_1@localhost;\r\nCREATE TABLE T1(f1 INT);\r\nCREATE TABLE t1(f1 INT);\r\nGRANT SELECT ON T1 to user_1@localhost;\r\nGRANT SELECT ON t1 to user_1@localhost;\r\n\r\nDROP DATABASE d1;\r\nDROP USER user_1@localhost;\r\n```\r\n### 2. What did you expect to see? \r\n```sql\r\nmysql> CREATE TABLE T1(f1 INT);\r\nQuery OK, 0 rows affected (0.01 sec)\r\n\r\nmysql> CREATE TABLE t1(f1 INT);\r\nERROR 1050 (42S01): Table 't1' already exists\r\n\r\nmysql> GRANT SELECT ON T1 to user_1@localhost;\r\nQuery OK, 0 rows affected (0.00 sec)\r\n\r\nmysql> GRANT SELECT ON t1 to user_1@localhost;\r\nQuery OK, 0 rows affected (0.00 sec)\r\n```\r\n\r\n### 3. What did you see instead\r\n```sql\r\ntidb> CREATE TABLE T1(f1 INT);\r\nQuery OK, 0 rows affected (0.00 sec)\r\n\r\ntidb> CREATE TABLE t1(f1 INT);\r\nERROR 1050 (42S01): Table 'd1.t1' already exists\r\n\r\ntidb> GRANT SELECT ON T1 to user_1@localhost;\r\nQuery OK, 0 rows affected (0.01 sec)\r\n\r\ntidb> GRANT SELECT ON t1 to user_1@localhost;  -- not case insesitive, Table 'd1.t1' already exists\r\nERROR 1146 (42S02): Table 'd1.t1' doesn't exist     \r\n```\r\n\r\n### 4. What is your TiDB version? \r\n```\r\ntidb_version(): Release Version: v6.1.0-alpha-391-g901f042d5\r\nEdition: Community\r\nGit Commit Hash: 901f042d5d3cca6c52e8d4921e109b2b6f14f594\r\nGit Branch: master\r\nUTC Build Time: 2022-05-12 03:19:29\r\nGoVersion: go1.18.1\r\nRace Enabled: false\r\nTiKV Min Version: v3.0.0-60965b006877ca7234adaced7890d7b029ed1306\r\nCheck Table Before Drop: false\r\n```",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/grant_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

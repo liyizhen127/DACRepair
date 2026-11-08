@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-16607",
+  "base_commit": "c18b6dd2e2c9ad09e41947827dd6b45caa436d55",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex 72cb0336b1461..fd95ccbcbb84b 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -2305,6 +2305,12 @@ func (b *PlanBuilder) buildLoadData(ctx context.Context, ld *ast.LoadDataStmt) (\n \t\tLinesInfo:   ld.LinesInfo,\n \t\tIgnoreLines: ld.IgnoreLines,\n \t}\n+\tuser := b.ctx.GetSessionVars().User\n+\tvar insertErr error\n+\tif user != nil {\n+\t\tinsertErr = ErrTableaccessDenied.GenWithStackByArgs(\"INSERT\", user.AuthUsername, user.AuthHostname, p.Table.Name.O)\n+\t}\n+\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.InsertPriv, p.Table.Schema.O, p.Table.Name.O, \"\", insertErr)\n \ttableInfo := p.Table.TableInfo\n \ttableInPlan, ok := b.is.TableByID(tableInfo.ID)\n \tif !ok {\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex 3dc1201fa3d78..da250261145f8 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -20,6 +20,7 @@ import (\n \t\"crypto/x509\"\n \t\"crypto/x509/pkix\"\n \t\"fmt\"\n+\t\"os\"\n \t\"strings\"\n \t\"testing\"\n \n@@ -929,6 +930,35 @@ func (s *testPrivilegeSuite) TestAdminCommand(c *C) {\n \tc.Assert(err, IsNil)\n }\n \n+func (s *testPrivilegeSuite) TestLoadDataPrivilege(c *C) {\n+\t// Create file.\n+\tpath := \"/tmp/load_data_priv.csv\"\n+\tfp, err := os.Create(path)\n+\tc.Assert(err, IsNil)\n+\tc.Assert(fp, NotNil)\n+\tdefer func() {\n+\t\terr = fp.Close()\n+\t\tc.Assert(err, IsNil)\n+\t\terr = os.Remove(path)\n+\t\tc.Assert(err, IsNil)\n+\t}()\n+\tfp.WriteString(\"1\\n\")\n+\n+\tse := newSession(c, s.store, s.dbName)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, `CREATE USER 'test_load'@'localhost';`)\n+\tmustExec(c, se, `CREATE TABLE t_load(a int)`)\n+\tmustExec(c, se, `GRANT SELECT on *.* to 'test_load'@'localhost'`)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"test_load\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\t_, err = se.Execute(context.Background(), \"LOAD DATA LOCAL INFILE '/tmp/load_data_priv.csv' INTO TABLE t_load\")\n+\tc.Assert(strings.Contains(err.Error(), \"INSERT command denied to user 'test_load'@'localhost' for table 't_load'\"), IsTrue)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, `GRANT INSERT on *.* to 'test_load'@'localhost'`)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"test_load\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\t_, err = se.Execute(context.Background(), \"LOAD DATA LOCAL INFILE '/tmp/load_data_priv.csv' INTO TABLE t_load\")\n+\tc.Assert(err, IsNil)\n+}\n+\n func (s *testPrivilegeSuite) TestGetEncodedPassword(c *C) {\n \tse := newSession(c, s.store, s.dbName)\n \tmustExec(c, se, `CREATE USER 'test_encode_u'@'localhost' identified by 'root';`)\n",
+  "problem_statement": "plan, privilege:fix load data privilege check\n\nIssue Number: close https://github.com/tidb-challenge-program/bug-hunting-issue/issues/33 \r\n\r\nProblem Summary:\r\n`LOAD DATA` doesn't check privilege, any user could write data into table by using load data.\r\n\r\n### What is changed and how it works?\r\n\r\nWhat's Changed:\r\nTiDB currently just support `LOAD DATA LOCAL`, according to mysql document, this function nee `INSERT` privilege for table.\r\n\r\nHow it Works:\r\nCheck `INSERT` privilege when building `LOAD DATA` plan\r\n\r\n### Related changes\r\n\r\n- Need to cherry-pick to the release branch",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

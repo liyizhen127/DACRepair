@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-15825",
+  "base_commit": "af787a3acfba0d6786414dfdc6bce4caecf8dd77",
+  "patch": "diff --git a/executor/builder.go b/executor/builder.go\nindex 8009b5384ed29..0bb542a1a5129 100644\n--- a/executor/builder.go\n+++ b/executor/builder.go\n@@ -650,6 +650,8 @@ func (b *executorBuilder) buildShow(v *plannercore.PhysicalShow) Executor {\n \t\t// The former determine privileges with roles, while the later doesn't.\n \t\tvars := e.ctx.GetSessionVars()\n \t\te.User = vars.User\n+\t\te.User.Hostname = vars.User.AuthHostname\n+\t\te.User.Username = vars.User.AuthUsername\n \t\te.Roles = vars.ActiveRoles\n \t}\n \tif e.Tp == ast.ShowMasterStatus {\n",
+  "test_patch": "diff --git a/executor/show_test.go b/executor/show_test.go\nindex 0de40adbd88c3..e47989b420659 100644\n--- a/executor/show_test.go\n+++ b/executor/show_test.go\n@@ -150,6 +150,13 @@ func (s *testSuite5) TestShowGrantsPrivilege(c *C) {\n \ttk1.Se = se\n \terr = tk1.QueryToErr(\"show grants for root\")\n \tc.Assert(err.Error(), Equals, executor.ErrDBaccessDenied.GenWithStackByArgs(\"show_grants\", \"%\", mysql.SystemDB).Error())\n+\t// Test show grants for user with auth host name `%`.\n+\ttk2 := testkit.NewTestKit(c, s.store)\n+\tse2, err := session.CreateSession4Test(s.store)\n+\tc.Assert(err, IsNil)\n+\tc.Assert(se2.Auth(&auth.UserIdentity{Username: \"show_grants\", Hostname: \"127.0.0.1\", AuthUsername: \"show_grants\", AuthHostname: \"%\"}, nil, nil), IsTrue)\n+\ttk2.Se = se2\n+\ttk2.MustQuery(\"show grants\")\n }\n \n func (s *testSuite5) TestIssue3641(c *C) {\n",
+  "problem_statement": "privilege: fix user with `%` hostname can not show grants.\n\n#15524 didn't fix this case:\r\n\r\n```\r\ncreate user u1;\r\n// login as u1\r\nshow grants;\r\n```\r\nAuthhostname of u1 is `%`, hostname of `u1` is `127.0.0.1`.  `ShowGrants` checks hostname in executor which cause show grants fail.\r\n\r\n### What is changed and how it works?\r\nif user in `ShowGrants` is `nil`, copy session variable user to executor.\r\n\r\n\r\n### Related changes\r\n\r\n- Need to cherry-pick to the release branch",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/show_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-8837",
+  "base_commit": "cfff96555e2dd9923258f0e5cb3fd5127381ac51",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex 11b11cb50c3a7..ee723274ff50d 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -248,6 +248,9 @@ func (b *PlanBuilder) buildDo(v *ast.DoStmt) (Plan, error) {\n func (b *PlanBuilder) buildSet(v *ast.SetStmt) (Plan, error) {\n \tp := &Set{}\n \tfor _, vars := range v.Variables {\n+\t\tif vars.IsGlobal {\n+\t\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SuperPriv, \"\", \"\", \"\", nil)\n+\t\t}\n \t\tassign := &expression.VarAssignment{\n \t\t\tName:     vars.Name,\n \t\t\tIsGlobal: vars.IsGlobal,\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex a827e041241aa..9f412715ed20a 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -326,6 +326,21 @@ func (s *testPrivilegeSuite) TestUseDb(c *C) {\n \n }\n \n+func (s *testPrivilegeSuite) TestSetGlobal(c *C) {\n+\tse := newSession(c, s.store, s.dbName)\n+\tmustExec(c, se, `CREATE USER setglobal_a@localhost`)\n+\tmustExec(c, se, `CREATE USER setglobal_b@localhost`)\n+\tmustExec(c, se, `GRANT SUPER ON *.* to setglobal_a@localhost`)\n+\tmustExec(c, se, `FLUSH PRIVILEGES`)\n+\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"setglobal_a\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, `set global innodb_commit_concurrency=16`)\n+\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"setglobal_b\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\t_, err := se.Execute(context.Background(), `set global innodb_commit_concurrency=16`)\n+\tc.Assert(strings.Contains(err.Error(), \"privilege check fail\"), IsTrue)\n+}\n+\n func (s *testPrivilegeSuite) TestAnalyzeTable(c *C) {\n \n \tse := newSession(c, s.store, s.dbName)\n",
+  "problem_statement": "Check user privilege when setting global/session variables\n\nPlease answer these questions before submitting your issue. Thanks!\r\n\r\n1. What did you do?\r\n\r\nChange global session variable may need some kinds of privilege, TiDB should check them.\r\n\r\n\r\n2. What did you expect to see?\r\n\r\nI guess TiDB doesn't check it.\r\n\r\n3. What did you see instead?\r\n\r\n\r\n\r\n4. What version of TiDB are you using (`tidb-server -V` or run `select tidb_version();` on TiDB)?\r\n\r\nmaster 9fc67b9a9f5094532a785853cd0249185947ac7c",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

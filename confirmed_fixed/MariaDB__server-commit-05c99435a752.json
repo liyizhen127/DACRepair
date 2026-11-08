@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-05c99435a752",
+  "base_commit": "ef14d6d6a42c8e49170c144b3daf181f43d4aba3",
+  "patch": "diff --git a/sql/sql_alter.cc b/sql/sql_alter.cc\nindex 2202cf24e1122..5394f3fe873a7 100644\n--- a/sql/sql_alter.cc\n+++ b/sql/sql_alter.cc\n@@ -493,6 +493,14 @@ bool Sql_cmd_alter_table::execute(THD *thd)\n                    0, 0))\n     DBUG_RETURN(TRUE);                  /* purecov: inspected */\n \n+  if ((alter_info.partition_flags & ALTER_PARTITION_CONVERT_IN))\n+  {\n+    TABLE_LIST *tl= first_table->next_local;\n+    tl->grant.privilege= first_table->grant.privilege;\n+    tl->grant.m_internal= first_table->grant.m_internal;\n+  }\n+\n+\n   /* If it is a merge table, check privileges for merge children. */\n   if (create_info.merge_list)\n   {\n",
+  "test_patch": "diff --git a/mysql-test/suite/parts/r/alter_table.result b/mysql-test/suite/parts/r/alter_table.result\nindex b887cea36f098..fa458c977c211 100644\n--- a/mysql-test/suite/parts/r/alter_table.result\n+++ b/mysql-test/suite/parts/r/alter_table.result\n@@ -344,3 +344,17 @@ connection default;\n drop database EXISTENT;\n drop user alan;\n drop tables t1, tp1, tp2, tp4;\n+#\n+# MDEV-31014 Database privileges are insufficient for CONVERT TABLE TO PARTITION\n+#\n+create database db;\n+create user u@localhost;\n+grant all on db.* to u@localhost;\n+connect  con1,localhost,u,,db;\n+create table t1 (a int) partition by range(a) (p1 values less than (100), p2 values less than (1000));\n+alter table t1 convert partition p2 to table tp;\n+alter table t1 convert table tp to partition p2 values less than (1000);\n+disconnect con1;\n+connection default;\n+drop user u@localhost;\n+drop database db;\ndiff --git a/mysql-test/suite/parts/t/alter_table.test b/mysql-test/suite/parts/t/alter_table.test\nindex 741a9450c8ef5..9b75add3afa1b 100644\n--- a/mysql-test/suite/parts/t/alter_table.test\n+++ b/mysql-test/suite/parts/t/alter_table.test\n@@ -301,3 +301,21 @@ alter table t1 convert partition p1 to table tp1;\n drop database EXISTENT;\n drop user alan;\n drop tables t1, tp1, tp2, tp4;\n+\n+--echo #\n+--echo # MDEV-31014 Database privileges are insufficient for CONVERT TABLE TO PARTITION\n+--echo #\n+create database db;\n+create user u@localhost;\n+grant all on db.* to u@localhost;\n+\n+--connect (con1,localhost,u,,db)\n+create table t1 (a int) partition by range(a) (p1 values less than (100), p2 values less than (1000));\n+alter table t1 convert partition p2 to table tp;\n+alter table t1 convert table tp to partition p2 values less than (1000);\n+\n+# Cleanup\n+--disconnect con1\n+--connection default\n+drop user u@localhost;\n+drop database db;\n",
+  "problem_statement": "Database privileges are insufficient for CONVERT TABLE TO PARTITION\n\n{code:sql}\r\n--source include/have_partition.inc\r\n\r\ncreate database db;\r\ncreate user u@localhost;\r\ngrant all on db.* to u@localhost;\r\n\r\n--connect (con1,localhost,u,,db)\r\ncreate table t1 (a int) partition by range(a) (p1 values less than (100), p2 values less than (1000));\r\nalter table t1 convert partition p2 to table tp;\r\nalter table t1 convert table tp to partition p2 values less than (1000);\r\n\r\n# Cleanup\r\n--disconnect con1\r\n--connection default\r\ndrop user u@localhost;\r\ndrop database db;\r\n{code}\r\n\r\n{code:sql|title=11.0 a79abb65}\r\nmysqltest: At line 10: query 'alter table t1 convert table tp to partition p2 values less than (1000)' failed: ER_TABLEACCESS_DENIED_ERROR (1142): DROP, ALTER command denied to user 'u'@'localhost' for table `db`.`tp`\r\n{code}\r\n\r\nSo, convert partition to table works, but the other way round does not.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/parts/r/alter_table.result",
+      "mysql-test/suite/parts/t/alter_table.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

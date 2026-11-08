@@ -1,0 +1,28 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-50b797dc99ec",
+  "base_commit": "a3a836fb5e51183eae624d43225279306c2285b8",
+  "patch": "diff --git a/src/backend/commands/user.c b/src/backend/commands/user.c\nindex 7a9c177b21c82..6839d44a2f5e0 100644\n--- a/src/backend/commands/user.c\n+++ b/src/backend/commands/user.c\n@@ -1093,7 +1093,7 @@ DropRole(DropRoleStmt *stmt)\n \tRelation\tpg_authid_rel,\n \t\t\t\tpg_auth_members_rel;\n \tListCell   *item;\n-\tList\t   *role_addresses = NIL;\n+\tList\t   *role_oids = NIL;\n \n \tif (!have_createrole_privilege())\n \t\tereport(ERROR,\n@@ -1119,7 +1119,6 @@ DropRole(DropRoleStmt *stmt)\n \t\tScanKeyData scankey;\n \t\tSysScanDesc sscan;\n \t\tOid\t\t\troleid;\n-\t\tObjectAddress *role_address;\n \n \t\tif (rolspec->roletype != ROLESPEC_CSTRING)\n \t\t\tereport(ERROR,\n@@ -1260,21 +1259,16 @@ DropRole(DropRoleStmt *stmt)\n \t\t */\n \t\tCommandCounterIncrement();\n \n-\t\t/* Looks tentatively OK, add it to the list. */\n-\t\trole_address = palloc(sizeof(ObjectAddress));\n-\t\trole_address->classId = AuthIdRelationId;\n-\t\trole_address->objectId = roleid;\n-\t\trole_address->objectSubId = 0;\n-\t\trole_addresses = lappend(role_addresses, role_address);\n+\t\t/* Looks tentatively OK, add it to the list if not there yet. */\n+\t\trole_oids = list_append_unique_oid(role_oids, roleid);\n \t}\n \n \t/*\n \t * Second pass over the roles to be removed.\n \t */\n-\tforeach(item, role_addresses)\n+\tforeach(item, role_oids)\n \t{\n-\t\tObjectAddress *role_address = lfirst(item);\n-\t\tOid\t\t\troleid = role_address->objectId;\n+\t\tOid\t\t\troleid = lfirst_oid(item);\n \t\tHeapTuple\ttuple;\n \t\tForm_pg_authid roleform;\n \t\tchar\t   *detail;\n",
+  "test_patch": "diff --git a/src/test/regress/expected/create_role.out b/src/test/regress/expected/create_role.out\nindex 7117e943c2096..46d4f9efe997e 100644\n--- a/src/test/regress/expected/create_role.out\n+++ b/src/test/regress/expected/create_role.out\n@@ -251,7 +251,8 @@ DROP INDEX tenant_idx;\n DROP TABLE tenant_table;\n DROP VIEW tenant_view;\n DROP SCHEMA regress_tenant2_schema;\n-DROP ROLE regress_tenant;\n+-- check for duplicated drop\n+DROP ROLE regress_tenant, regress_tenant;\n DROP ROLE regress_tenant2;\n DROP ROLE regress_rolecreator;\n DROP ROLE regress_role_admin;\ndiff --git a/src/test/regress/sql/create_role.sql b/src/test/regress/sql/create_role.sql\nindex 12582a3cc29df..4491a28a8ae99 100644\n--- a/src/test/regress/sql/create_role.sql\n+++ b/src/test/regress/sql/create_role.sql\n@@ -206,7 +206,8 @@ DROP INDEX tenant_idx;\n DROP TABLE tenant_table;\n DROP VIEW tenant_view;\n DROP SCHEMA regress_tenant2_schema;\n-DROP ROLE regress_tenant;\n+-- check for duplicated drop\n+DROP ROLE regress_tenant, regress_tenant;\n DROP ROLE regress_tenant2;\n DROP ROLE regress_rolecreator;\n DROP ROLE regress_role_admin;\n",
+  "problem_statement": "Fix DROP ROLE when specifying duplicated roles\n\nThis commit fixes failures with \"tuple already updated by self\" when\nlisting twice the same role and in a DROP ROLE query.\n\nThis is an oversight in 6566133c5f52, that has introduced a two-phase\nlogic in DropRole() where dependencies of all the roles to drop are\nremoved in a first phase, with the roles themselves removed from\npg_authid in a second phase.\n\nThe code is simplified to not rely on a List of ObjectAddress built in\nthe first phase used to remove the pg_authid entries in the second\nphase, switching to a list of OIDs.  Duplicated OIDs can be simply\navoided in the first phase thanks to that.  Using ObjectAddress was not\nnecessary for the roles as they are not used for anything specific to\ndependency.c, building all the ObjectAddress in the List with\nAuthIdRelationId as class ID.\n\nIn 15 and older versions, where a single phase is used, DROP ROLE with\nduplicated role names would fail on \"role \\\"blah\\\" does not exist\" for\nthe second entry after the CCI() done by the first deletion.  This is\nnot really incorrect, but it does not seem worth changing based on a\nlack of complaints.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/create_role.out",
+      "src/test/regress/sql/create_role.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

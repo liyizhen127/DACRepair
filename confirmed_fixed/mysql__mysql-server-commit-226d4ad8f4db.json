@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-226d4ad8f4db",
+  "base_commit": "09b316f051fad52fae0c942ff8f179abd2b1648b",
+  "patch": "diff --git a/sql/sql_view.cc b/sql/sql_view.cc\nindex 8238d3d48495..178c01687b0c 100644\n--- a/sql/sql_view.cc\n+++ b/sql/sql_view.cc\n@@ -245,10 +245,9 @@ int mysql_create_view(THD *thd,\n       if ((fld= item->filed_for_view_update()))\n       {\n         /*\n-          There are no any privileges on VIEW column or there are\n-          some other privileges then we have for underlaying table\n+          Do we have more privilegeson view field then underlying table field\n         */\n-        if (priv == 0 || (~fld->have_privileges & priv))\n+        if ((~fld->have_privileges & priv))\n         {\n           /* VIEW column has more privileges */\n           my_printf_error(ER_COLUMNACCESS_DENIED_ERROR,\n@@ -262,22 +261,6 @@ int mysql_create_view(THD *thd,\n           DBUG_RETURN(-1);\n         }\n       }\n-      else\n-      {\n-        if (!(priv & SELECT_ACL))\n-        {\n-          /* user have not privilege to SELECT expression */\n-          my_printf_error(ER_COLUMNACCESS_DENIED_ERROR,\n-                          ER(ER_COLUMNACCESS_DENIED_ERROR),\n-                          MYF(0),\n-                          \"select\",\n-                          thd->priv_user,\n-                          thd->host_or_ip,\n-                          item->name,\n-                          view->real_name);\n-          DBUG_RETURN(-1);\n-        }\n-      }\n     }\n   }\n #endif\n",
+  "test_patch": "diff --git a/mysql-test/r/view.result b/mysql-test/r/view.result\nindex 62f0e849cbf4..00ad31d546f2 100644\n--- a/mysql-test/r/view.result\n+++ b/mysql-test/r/view.result\n@@ -922,14 +922,17 @@ create table mysqltest.v3 (b int);\n grant create view on mysqltest.v3 to mysqltest_1@localhost;\n drop table mysqltest.v3;\n create view mysqltest.v3 as select b from mysqltest.t2;\n-ERROR 42000: create view command denied to user 'mysqltest_1'@'localhost' for column 'b' in table 'v3'\n-create table mysqltest.v3 (b int);\n grant create view, update on mysqltest.v3 to mysqltest_1@localhost;\n-drop table mysqltest.v3;\n+drop view mysqltest.v3;\n create view mysqltest.v3 as select b from mysqltest.t2;\n-grant select(b) on mysqltest.v3 to mysqltest_1@localhost;\n+grant create view, update, insert on mysqltest.v3 to mysqltest_1@localhost;\n drop view mysqltest.v3;\n create view mysqltest.v3 as select b from mysqltest.t2;\n+ERROR 42000: create view command denied to user 'mysqltest_1'@'localhost' for column 'b' in table 'v3'\n+create table mysqltest.v3 (b int);\n+grant select(b) on mysqltest.v3 to mysqltest_1@localhost;\n+drop table mysqltest.v3;\n+create view mysqltest.v3 as select b from mysqltest.t2;\n ERROR 42000: create view command denied to user 'mysqltest_1'@'localhost' for table 'v3'\n create view v4 as select b+1 from mysqltest.t2;\n ERROR 42000: SELECT command denied to user 'mysqltest_1'@'localhost' for column 'b' in table 't2'\ndiff --git a/mysql-test/t/view.test b/mysql-test/t/view.test\nindex ac582c71c51e..4c348e0b9d88 100644\n--- a/mysql-test/t/view.test\n+++ b/mysql-test/t/view.test\n@@ -804,29 +804,37 @@ create view mysqltest.v1 as select * from mysqltest.t1;\n -- error 1143\n create view v3 as select a from mysqltest.t2;\n \n-# give CRETEA VIEW privileges but without any privileges for result colemn\n+# give CRETEA VIEW privileges (without any privileges for result colemn)\n connection root;\n create table mysqltest.v3 (b int);\n grant create view on mysqltest.v3 to mysqltest_1@localhost;\n drop table mysqltest.v3;\n connection user1;\n--- error 1143\n create view mysqltest.v3 as select b from mysqltest.t2;\n \n-# give UPDATE privileges -> create works\n+# give UPDATE privileges\n connection root;\n-create table mysqltest.v3 (b int);\n grant create view, update on mysqltest.v3 to mysqltest_1@localhost;\n-drop table mysqltest.v3;\n+drop view mysqltest.v3;\n connection user1;\n create view mysqltest.v3 as select b from mysqltest.t2;\n \n+# give UPDATE and INSERT privilege (to get more privileges then anderlying\n+# table)\n+connection root;\n+grant create view, update, insert on mysqltest.v3 to mysqltest_1@localhost;\n+drop view mysqltest.v3;\n+connection user1;\n+-- error 1143\n+create view mysqltest.v3 as select b from mysqltest.t2;\n+\n \n # If give other privileges for VIEW then underlaying table have =>\n # creation prohibited\n connection root;\n+create table mysqltest.v3 (b int);\n grant select(b) on mysqltest.v3 to mysqltest_1@localhost;\n-drop view mysqltest.v3;\n+drop table mysqltest.v3;\n connection user1;\n -- error 1142\n create view mysqltest.v3 as select b from mysqltest.t2;\n",
+  "problem_statement": "now we allow to careate VIEW without any privileges on view columns (except create view privilege) (BUG#5152)",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/view.result",
+      "mysql-test/t/view.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

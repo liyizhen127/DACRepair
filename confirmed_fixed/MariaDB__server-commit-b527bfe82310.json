@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-b527bfe82310",
+  "base_commit": "6c973be2e9f6068507d42ccb644ff0a92e164d08",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 059a6ed412794..b48a4d2fc8dc0 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -5148,8 +5148,11 @@ static int replace_column_table(GRANT_TABLE *g_t,\n         error= 0;\n       grant_column= column_hash_search(g_t, column->column.ptr(),\n                                        column->column.length());\n-      if (grant_column)\t\t\t\t// Should always be true\n-\tgrant_column->rights= privileges;\t// Update hash\n+      if (grant_column)  // Should always be true\n+      {\n+        grant_column->rights= privileges;\t// Update hash\n+        grant_column->init_rights= privileges;\n+      }\n     }\n     else\t\t\t\t\t// new grant\n     {\n",
+  "test_patch": "diff --git a/mysql-test/main/grant5.result b/mysql-test/main/grant5.result\nindex 908a05aadf1bc..dc8ee52737864 100644\n--- a/mysql-test/main/grant5.result\n+++ b/mysql-test/main/grant5.result\n@@ -296,4 +296,28 @@ drop database db;\n drop user foo@localhost;\n drop user bar@localhost;\n drop user buz@localhost;\n+CREATE USER foo;\n+CREATE DATABASE db;\n+CREATE TABLE db.test_getcolpriv(col1 INT, col2 INT);\n+GRANT SELECT (col1,col2) ON db.test_getcolpriv TO foo;\n+GRANT INSERT (col1) ON db.test_getcolpriv TO foo;\n+SHOW GRANTS FOR foo;\n+Grants for foo@%\n+GRANT USAGE ON *.* TO `foo`@`%`\n+GRANT SELECT (col2, col1), INSERT (col1) ON `db`.`test_getcolpriv` TO `foo`@`%`\n+REVOKE SELECT (col1,col2) ON db.test_getcolpriv FROM foo;\n+SHOW GRANTS FOR foo;\n+Grants for foo@%\n+GRANT USAGE ON *.* TO `foo`@`%`\n+GRANT INSERT (col1) ON `db`.`test_getcolpriv` TO `foo`@`%`\n+REVOKE INSERT (col1) ON db.test_getcolpriv FROM foo;\n+SHOW GRANTS FOR foo;\n+Grants for foo@%\n+GRANT USAGE ON *.* TO `foo`@`%`\n+FLUSH PRIVILEGES;\n+SHOW GRANTS FOR foo;\n+Grants for foo@%\n+GRANT USAGE ON *.* TO `foo`@`%`\n+DROP USER foo;\n+DROP DATABASE db;\n # End of 10.3 tests\ndiff --git a/mysql-test/main/grant5.test b/mysql-test/main/grant5.test\nindex 35df5a6ec035a..cff63d2a9f91b 100644\n--- a/mysql-test/main/grant5.test\n+++ b/mysql-test/main/grant5.test\n@@ -259,4 +259,23 @@ drop user foo@localhost;\n drop user bar@localhost;\n drop user buz@localhost;\n \n+CREATE USER foo;\n+CREATE DATABASE db;\n+CREATE TABLE db.test_getcolpriv(col1 INT, col2 INT);\n+\n+GRANT SELECT (col1,col2) ON db.test_getcolpriv TO foo;\n+GRANT INSERT (col1) ON db.test_getcolpriv TO foo;\n+\n+SHOW GRANTS FOR foo;\n+REVOKE SELECT (col1,col2) ON db.test_getcolpriv FROM foo;\n+SHOW GRANTS FOR foo;\n+REVOKE INSERT (col1) ON db.test_getcolpriv FROM foo;\n+\n+SHOW GRANTS FOR foo;\n+FLUSH PRIVILEGES;\n+SHOW GRANTS FOR foo;\n+\n+DROP USER foo;\n+DROP DATABASE db;\n+\n --echo # End of 10.3 tests\n",
+  "problem_statement": "Revoking Privilege on the Column Yields the Error\n\nIt's a regression in latest version 10.6.11, I did not try with other branches. But it used to work before this release.\r\n\r\nHow to repeat:\r\n\r\n{code:java}\r\nMariaDB [INFORMATION_SCHEMA]> CREATE TABLE test.test_getcolpriv(col1 INT, col2 INT);\r\nQuery OK, 0 rows affected (0.041 sec)\r\nMariaDB [INFORMATION_SCHEMA]> GRANT SELECT (col1,col2) ON test.test_getcolpriv TO 'root';\r\nQuery OK, 0 rows affected (0.025 sec)\r\nMariaDB [INFORMATION_SCHEMA]> GRANT INSERT (col1) ON test.test_getcolpriv TO 'root';\r\nQuery OK, 0 rows affected (0.025 sec)\r\n\r\nMariaDB [INFORMATION_SCHEMA]> REVOKE SELECT (col1,col2) ON test.test_getcolpriv FROM 'root';\r\nQuery OK, 0 rows affected (0.025 sec)\r\nMariaDB [INFORMATION_SCHEMA]> REVOKE INSERT (col1) ON test.test_getcolpriv FROM 'root';\r\nERROR 1147 (42000): There is no such grant defined for user 'root' on host '%' on table 'test_getcolpriv'\r\n{code}\r\n\r\nFLUSH PRIVILEGES in between fixes the thing. Also, any one GRANT/REVOKE from these two do not result in the error",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/main/grant5.result",
+      "mysql-test/main/grant5.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

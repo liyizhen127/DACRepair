@@ -1,0 +1,36 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-53ed5ebd84fb",
+  "base_commit": "4fac4c1085ab12a811f2285b189979e844ceb670",
+  "patch": "diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c\nindex bc9b8c9897e07..6857315c071d7 100644\n--- a/src/backend/commands/tablecmds.c\n+++ b/src/backend/commands/tablecmds.c\n@@ -18964,6 +18964,7 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)\n \tObjectAddress tableobj,\n \t\t\t\ttypeobj;\n \tHeapTuple\tclasstuple;\n+\tAclResult\taclresult;\n \n \t/* Validate the type. */\n \ttypetuple = typenameType(NULL, ofTypename, NULL);\n@@ -18971,6 +18972,10 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)\n \ttypeform = (Form_pg_type) GETSTRUCT(typetuple);\n \ttypeid = typeform->oid;\n \n+\taclresult = object_aclcheck(TypeRelationId, typeid, GetUserId(), ACL_USAGE);\n+\tif (aclresult != ACLCHECK_OK)\n+\t\taclcheck_error_type(aclresult, typeid);\n+\n \t/* Fail if the table has any inheritance parents. */\n \tinheritsRelation = table_open(InheritsRelationId, AccessShareLock);\n \tScanKeyInit(&key,\n",
+  "test_patch": "diff --git a/src/test/regress/expected/privileges.out b/src/test/regress/expected/privileges.out\nindex 3e5cc81f0eb1a..ca693308e79dd 100644\n--- a/src/test/regress/expected/privileges.out\n+++ b/src/test/regress/expected/privileges.out\n@@ -1452,6 +1452,9 @@ CREATE TABLE test5a (a int, b priv_testdomain1);\n ERROR:  permission denied for type priv_testdomain1\n CREATE TABLE test6a OF priv_testtype1;\n ERROR:  permission denied for type priv_testtype1\n+CREATE TABLE test6a2 (a int, b text);\n+ALTER TABLE test6a2 OF priv_testtype1;\n+ERROR:  permission denied for type priv_testtype1\n CREATE TABLE test10a (a int[], b priv_testtype1[]);\n ERROR:  permission denied for type priv_testtype1\n CREATE TABLE test9a (a int, b int);\n@@ -1499,6 +1502,8 @@ CREATE FUNCTION priv_testfunc7b(a int DEFAULT ('(0,1)'::priv_testtype1).a) RETUR\n CREATE OPERATOR !! (PROCEDURE = priv_testfunc5b, RIGHTARG = priv_testdomain1);\n CREATE TABLE test5b (a int, b priv_testdomain1);\n CREATE TABLE test6b OF priv_testtype1;\n+CREATE TABLE test6b2 (a int, b text);\n+ALTER TABLE test6b2 OF priv_testtype1;\n CREATE TABLE test10b (a int[], b priv_testtype1[]);\n CREATE TABLE test9b (a int, b int);\n ALTER TABLE test9b ADD COLUMN c priv_testdomain1;\n@@ -1540,6 +1545,7 @@ DROP FUNCTION priv_testfunc6b(b int);\n DROP FUNCTION priv_testfunc7b(a int);\n DROP TABLE test5b;\n DROP TABLE test6b;\n+DROP TABLE test6b2;\n DROP TABLE test9b;\n DROP TABLE test10b;\n DROP TYPE test7b;\ndiff --git a/src/test/regress/sql/privileges.sql b/src/test/regress/sql/privileges.sql\nindex 7932216565595..8a5f9ff98ad40 100644\n--- a/src/test/regress/sql/privileges.sql\n+++ b/src/test/regress/sql/privileges.sql\n@@ -1004,6 +1004,8 @@ CREATE OPERATOR !+! (PROCEDURE = int4pl, LEFTARG = priv_testdomain1, RIGHTARG =\n \n CREATE TABLE test5a (a int, b priv_testdomain1);\n CREATE TABLE test6a OF priv_testtype1;\n+CREATE TABLE test6a2 (a int, b text);\n+ALTER TABLE test6a2 OF priv_testtype1;\n CREATE TABLE test10a (a int[], b priv_testtype1[]);\n \n CREATE TABLE test9a (a int, b int);\n@@ -1052,6 +1054,8 @@ CREATE OPERATOR !! (PROCEDURE = priv_testfunc5b, RIGHTARG = priv_testdomain1);\n \n CREATE TABLE test5b (a int, b priv_testdomain1);\n CREATE TABLE test6b OF priv_testtype1;\n+CREATE TABLE test6b2 (a int, b text);\n+ALTER TABLE test6b2 OF priv_testtype1;\n CREATE TABLE test10b (a int[], b priv_testtype1[]);\n \n CREATE TABLE test9b (a int, b int);\n@@ -1099,6 +1103,7 @@ DROP FUNCTION priv_testfunc6b(b int);\n DROP FUNCTION priv_testfunc7b(a int);\n DROP TABLE test5b;\n DROP TABLE test6b;\n+DROP TABLE test6b2;\n DROP TABLE test9b;\n DROP TABLE test10b;\n DROP TYPE test7b;\n",
+  "problem_statement": "PostgreSQL ALTER TABLE OF permits use of a composite type without USAGE.\n\nA role without USAGE on a composite type can create a table dependency on that type through ALTER TABLE OF. This unauthorized dependency can prevent the type owner from changing it later. The command should honor the type's USAGE privilege.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "implemented",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64",
+    "prebuilt_donor": {
+      "image_id": "sha256:a31cace3db4820c4488cdb7c738762fba738310b1ea635ed88b18349adfc0d84",
+      "reuse_audit": "test_patch_only_uncompiled_sql_tcl"
+    }
+  },
+  "evaluation_spec": {
+    "mode": "native",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/privileges.out",
+      "src/test/regress/sql/privileges.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [
+      "privileges"
+    ],
+    "test_status": "upstream_unexecuted",
+    "baseline_diff_contains": [
+      "ALTER TABLE test6a2 OF priv_testtype1;",
+      "-ERROR:  permission denied for type priv_testtype1"
+    ]
+  },
+  "blockers": []
+}

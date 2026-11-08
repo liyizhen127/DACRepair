@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-10681",
+  "base_commit": "f7a8f4e04bb4a3584c3042cbd3358d6508a04a65",
+  "patch": "diff --git a/privilege/privileges/privileges.go b/privilege/privileges/privileges.go\nindex b9a74b09df24f..3e1e950454e17 100644\n--- a/privilege/privileges/privileges.go\n+++ b/privilege/privileges/privileges.go\n@@ -185,6 +185,9 @@ func (p *UserPrivileges) UserPrivilegesTable() [][]types.Datum {\n \n // ShowGrants implements privilege.Manager ShowGrants interface.\n func (p *UserPrivileges) ShowGrants(ctx sessionctx.Context, user *auth.UserIdentity, roles []*auth.RoleIdentity) (grants []string, err error) {\n+\tif SkipWithGrant {\n+\t\treturn nil, errNonexistingGrant.GenWithStackByArgs(\"root\", \"%\")\n+\t}\n \tmysqlPrivilege := p.Handle.Get()\n \tu := user.Username\n \th := user.Hostname\n@@ -202,6 +205,9 @@ func (p *UserPrivileges) ShowGrants(ctx sessionctx.Context, user *auth.UserIdent\n \n // ActiveRoles implements privilege.Manager ActiveRoles interface.\n func (p *UserPrivileges) ActiveRoles(ctx sessionctx.Context, roleList []*auth.RoleIdentity) (bool, string) {\n+\tif SkipWithGrant {\n+\t\treturn true, \"\"\n+\t}\n \tmysqlPrivilege := p.Handle.Get()\n \tu := p.user\n \th := p.host\n@@ -218,6 +224,9 @@ func (p *UserPrivileges) ActiveRoles(ctx sessionctx.Context, roleList []*auth.Ro\n \n // FindEdge implements privilege.Manager FindRelationship interface.\n func (p *UserPrivileges) FindEdge(ctx sessionctx.Context, role *auth.RoleIdentity, user *auth.UserIdentity) bool {\n+\tif SkipWithGrant {\n+\t\treturn false\n+\t}\n \tmysqlPrivilege := p.Handle.Get()\n \tok := mysqlPrivilege.FindRole(user.Username, user.Hostname, role)\n \tif !ok {\n@@ -229,6 +238,9 @@ func (p *UserPrivileges) FindEdge(ctx sessionctx.Context, role *auth.RoleIdentit\n \n // GetDefaultRoles returns all default roles for certain user.\n func (p *UserPrivileges) GetDefaultRoles(user, host string) []*auth.RoleIdentity {\n+\tif SkipWithGrant {\n+\t\treturn make([]*auth.RoleIdentity, 0, 10)\n+\t}\n \tmysqlPrivilege := p.Handle.Get()\n \tret := mysqlPrivilege.getDefaultRoles(user, host)\n \treturn ret\n@@ -236,6 +248,10 @@ func (p *UserPrivileges) GetDefaultRoles(user, host string) []*auth.RoleIdentity\n \n // GetAllRoles return all roles of user.\n func (p *UserPrivileges) GetAllRoles(user, host string) []*auth.RoleIdentity {\n+\tif SkipWithGrant {\n+\t\treturn make([]*auth.RoleIdentity, 0, 10)\n+\t}\n+\n \tmysqlPrivilege := p.Handle.Get()\n \treturn mysqlPrivilege.getAllRoles(user, host)\n }\n",
+  "test_patch": "diff --git a/session/session_test.go b/session/session_test.go\nindex 7cc34eab65959..600cb4c9fb217 100644\n--- a/session/session_test.go\n+++ b/session/session_test.go\n@@ -702,7 +702,10 @@ func (s *testSessionSuite) TestSkipWithGrant(c *C) {\n \tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"xxx\", Hostname: `%`}, []byte(\"yyy\"), []byte(\"zzz\")), IsTrue)\n \tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: `%`}, []byte(\"\"), []byte(\"\")), IsTrue)\n \ttk.MustExec(\"create table t (id int)\")\n-\n+\ttk.MustExec(\"create role r_1\")\n+\ttk.MustExec(\"grant r_1 to root\")\n+\ttk.MustExec(\"set role all\")\n+\ttk.MustExec(\"show grants for root\")\n \tprivileges.SkipWithGrant = save2\n }\n \n",
+  "problem_statement": "privileges: add SkipWithGrant check for RBAC methods\n\nRBAC methods in privileges package did not check `SkipWithGrant`. This cause panic when enable `--skip-grant-table`.\r\n\r\n### What is changed and how it works?\r\nadd check for `SkipWithGrant`, when `SkipWithGrant` is enabled, calling for RBAC method will be ignored.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "session/session_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

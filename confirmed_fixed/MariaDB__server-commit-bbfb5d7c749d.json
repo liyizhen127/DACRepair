@@ -1,0 +1,27 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-bbfb5d7c749d",
+  "base_commit": "1c91569274219ac612fcfdea4764311e2377977c",
+  "patch": "diff --git a/sql/wsrep_mysqld.cc b/sql/wsrep_mysqld.cc\nindex fe52ca2c49d10..75e15db0b8d8c 100644\n--- a/sql/wsrep_mysqld.cc\n+++ b/sql/wsrep_mysqld.cc\n@@ -805,7 +805,7 @@ void wsrep_init_startup (bool first)\n      (wsrep_on_fun)wsrep_on);\n \n   /* Skip replication start if no cluster address */\n-  if (!wsrep_cluster_address || strlen(wsrep_cluster_address) == 0) return;\n+  if (!wsrep_cluster_address || wsrep_cluster_address[0] == 0) return;\n \n   if (first) wsrep_sst_grab(); // do it so we can wait for SST below\n \n@@ -918,7 +918,7 @@ bool wsrep_start_replication()\n     return true;\n   }\n \n-  if (!wsrep_cluster_address || strlen(wsrep_cluster_address)== 0)\n+  if (!wsrep_cluster_address || wsrep_cluster_address[0]== 0)\n   {\n     // if provider is non-trivial, but no address is specified, wait for address\n     wsrep_ready_set(FALSE);\ndiff --git a/sql/wsrep_var.cc b/sql/wsrep_var.cc\nindex f5e236d3d4e06..318b35158fe23 100644\n--- a/sql/wsrep_var.cc\n+++ b/sql/wsrep_var.cc\n@@ -359,11 +359,11 @@ bool wsrep_cluster_address_check (sys_var *self, THD* thd, set_var* var)\n       (var->save_result.string_value.length > (FN_REFLEN - 1))) // safety\n     goto err;\n \n-  memcpy(addr_buf, var->save_result.string_value.str,\n-         var->save_result.string_value.length);\n-  addr_buf[var->save_result.string_value.length]= 0;\n+  strmake(addr_buf, var->save_result.string_value.str,\n+          sizeof(addr_buf)-1);\n \n-  if (!wsrep_cluster_address_verify(addr_buf)) return 0;\n+  if (!wsrep_cluster_address_verify(addr_buf))\n+    return 0;\n \n  err:\n   my_error(ER_WRONG_VALUE_FOR_VAR, MYF(0), var->var->name.str,\n@@ -421,8 +421,8 @@ void wsrep_cluster_address_init (const char* value)\n               (wsrep_cluster_address) ? wsrep_cluster_address : \"null\", \n               (value) ? value : \"null\");\n \n-  if (wsrep_cluster_address) my_free ((void*)wsrep_cluster_address);\n-  wsrep_cluster_address = (value) ? my_strdup(value, MYF(0)) : NULL;\n+  my_free((void*) wsrep_cluster_address);\n+  wsrep_cluster_address= my_strdup(value ? value : \"\", MYF(0));\n }\n \n /* wsrep_cluster_name cannot be NULL or an empty string. */\n",
+  "test_patch": "diff --git a/mysql-test/suite/perfschema/t/privilege_table_io.test b/mysql-test/suite/perfschema/t/privilege_table_io.test\nindex 833fe85e8bbaa..35c49bf33fb03 100644\n--- a/mysql-test/suite/perfschema/t/privilege_table_io.test\n+++ b/mysql-test/suite/perfschema/t/privilege_table_io.test\n@@ -1,7 +1,10 @@\n # Tests for PERFORMANCE_SCHEMA table io\n+# This test makes a restart because without it, events_waits_history_long\n+# sometimes contains duplicated entries of roles_mapping.\n \n --source include/not_embedded.inc\n --source include/have_perfschema.inc\n+--source include/restart_mysqld.inc\n --source ../include/table_io_setup_helper.inc\n \n # Remove \"deleted\" records from mysql.db that may come from previous tests,\n",
+  "problem_statement": "Fixed failures for privilege_table_io and wsrep_cluster_address_basic\n\n- Sometimes privilege_table_io printed double rows of roles_mapping\n  - Fixed by forcing restart of server when running test\n- Wsrep_cluster_address_basic failed in some combinations because\n  wsrep_cluster_address was set to NULL\n  - Fixed by ensuring it's never set to NULL, only empty string",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/perfschema/t/privilege_table_io.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-60519",
+  "base_commit": "43d47e4e1d7a712937c17029e09a359ffc4b9ed0",
+  "patch": "diff --git a/pkg/planner/core/planbuilder.go b/pkg/planner/core/planbuilder.go\nindex 6551f116b4c3f..332bd25aec303 100644\n--- a/pkg/planner/core/planbuilder.go\n+++ b/pkg/planner/core/planbuilder.go\n@@ -5199,12 +5199,21 @@ func (b *PlanBuilder) buildDDL(ctx context.Context, node ast.DDLNode) (base.Plan\n \t\tif len(v.Cols) != schema.Len() {\n \t\t\treturn nil, dbterror.ErrViewWrongList\n \t\t}\n+\t\tvar authCreateErr, authDropErr error\n \t\tif user := b.ctx.GetSessionVars().User; user != nil {\n-\t\t\tauthErr = plannererrors.ErrTableaccessDenied.GenWithStackByArgs(\"CREATE VIEW\", user.AuthUsername,\n+\t\t\tauthCreateErr = plannererrors.ErrTableaccessDenied.GenWithStackByArgs(\"CREATE VIEW\", user.AuthUsername,\n \t\t\t\tuser.AuthHostname, v.ViewName.Name.L)\n+\t\t\tif v.OrReplace {\n+\t\t\t\tauthDropErr = plannererrors.ErrTableaccessDenied.GenWithStackByArgs(\"DROP\", user.AuthUsername,\n+\t\t\t\t\tuser.AuthHostname, v.ViewName.Name.L)\n+\t\t\t}\n \t\t}\n \t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreateViewPriv, v.ViewName.Schema.L,\n-\t\t\tv.ViewName.Name.L, \"\", authErr)\n+\t\t\tv.ViewName.Name.L, \"\", authCreateErr)\n+\t\tif v.OrReplace {\n+\t\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.DropPriv, v.ViewName.Schema.L,\n+\t\t\t\tv.ViewName.Name.L, \"\", authDropErr)\n+\t\t}\n \t\tif v.Definer.CurrentUser && b.ctx.GetSessionVars().User != nil {\n \t\t\tv.Definer = b.ctx.GetSessionVars().User\n \t\t}\n",
+  "test_patch": "diff --git a/tests/integrationtest/r/privilege/privileges.result b/tests/integrationtest/r/privilege/privileges.result\nindex 82d821f44b00a..9d72494e4dbd2 100644\n--- a/tests/integrationtest/r/privilege/privileges.result\n+++ b/tests/integrationtest/r/privilege/privileges.result\n@@ -732,3 +732,16 @@ Database\n INFORMATION_SCHEMA\n tmpdb\n create temporary table tmpdb.tmp(id int);\n+use privilege__privileges;\n+DROP USER IF EXISTS foo;\n+CREATE USER foo;\n+DROP VIEW IF EXISTS v, v1;\n+GRANT SELECT ON privilege__privileges.* TO foo;\n+CREATE OR REPLACE VIEW v AS SELECT 1;\n+Error 1142 (42000): CREATE VIEW command denied to user 'foo'@'%' for table 'v'\n+GRANT CREATE VIEW ON privilege__privileges.* TO foo;\n+CREATE VIEW v AS SELECT 1;\n+CREATE OR REPLACE VIEW v AS SELECT 1, 1;\n+Error 1142 (42000): DROP command denied to user 'foo'@'%' for table 'v'\n+CREATE OR REPLACE VIEW v1 AS SELECT 1, 1;\n+Error 1142 (42000): DROP command denied to user 'foo'@'%' for table 'v1'\ndiff --git a/tests/integrationtest/t/privilege/privileges.test b/tests/integrationtest/t/privilege/privileges.test\nindex bc6dc953bdb9d..d0c5a413153ea 100644\n--- a/tests/integrationtest/t/privilege/privileges.test\n+++ b/tests/integrationtest/t/privilege/privileges.test\n@@ -990,3 +990,27 @@ create temporary table tmpdb.tmp(id int);\n disconnect test_user;\n connection default;\n \n+# TestIssue60469\n+use privilege__privileges;\n+DROP USER IF EXISTS foo;\n+CREATE USER foo;\n+DROP VIEW IF EXISTS v, v1;\n+GRANT SELECT ON privilege__privileges.* TO foo;\n+\n+connect (foo, localhost, foo,,privilege__privileges);\n+--error 1142\n+CREATE OR REPLACE VIEW v AS SELECT 1;\n+\n+connection default;\n+GRANT CREATE VIEW ON privilege__privileges.* TO foo;\n+\n+connection foo;\n+CREATE VIEW v AS SELECT 1;\n+--error 1142\n+CREATE OR REPLACE VIEW v AS SELECT 1, 1;\n+--error 1142\n+CREATE OR REPLACE VIEW v1 AS SELECT 1, 1;\n+\n+disconnect foo;\n+connection default;\n+\n",
+  "problem_statement": "The permission check of `CREATE OR REPLACE VIEW` is incompatible with MySQL\n\n## Bug Report\n\nThe permission check of `CREATE OR REPLACE VIEW` is incompatible with MySQL.\n\n### 1. Minimal reproduce step\n\n```sql\n-- login with user 'root'\nDROP DATABASE IF EXISTS test; \nCREATE DATABASE test;\nUSE test;\n\nDROP USER IF EXISTS foo; \nCREATE USER foo;\nGRANT CREATE VIEW ON *.* TO foo;\n\n\n-- login with user 'foo'\nUSE test;\nCREATE VIEW v AS SELECT 1;\nCREATE OR REPLACE VIEW v AS SELECT 1, 1;\n```\n\n### 2. What did you expect to see?\nIn MySQL:\n\n```\nmysql> CREATE OR REPLACE VIEW v AS SELECT 1, 1;\n\nERROR 1142 (42000): DROP command denied to user 'foo'@'172.17.0.1' for table 'v'\n```\n\nIt is because that the `CREATE OR REPLACE VIEW` statement in MySQL needs `DROP` privilege when the view already exists.\n\n### 3. What did you see instead?\nIn TiDB: \n\n```\nmysql> CREATE OR REPLACE VIEW v AS SELECT 1, 1;\n\nQuery OK, 0 rows affected (0.01 sec)\n```\n\n### 4. What is your TiDB version?\n\ndocker image `pingcap/tidb:nightly`:\n\n```\nRelease Version: v9.0.0-beta.1.pre-533-g671534a\nEdition: Community\nGit Commit Hash: 671534a755e5ac3fbb5b515cc15f4d54142e6810\nGit Branch: HEAD\nUTC Build Time: 2025-04-09 14:12:27\nGoVersion: go1.23.8\nRace Enabled: false\nCheck Table Before Drop: false\nStore: unistore\n```",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "tests/integrationtest/r/privilege/privileges.result",
+      "tests/integrationtest/t/privilege/privileges.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

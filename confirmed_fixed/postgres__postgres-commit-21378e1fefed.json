@@ -1,0 +1,28 @@
+{
+  "repo": "postgres/postgres",
+  "instance_id": "postgres__postgres-commit-21378e1fefed",
+  "base_commit": "a0efda88a679edaee9855628cb05b2ab00d80a15",
+  "patch": "diff --git a/src/backend/catalog/aclchk.c b/src/backend/catalog/aclchk.c\nindex 1a81e768eccd5..f3c1ca18ae747 100644\n--- a/src/backend/catalog/aclchk.c\n+++ b/src/backend/catalog/aclchk.c\n@@ -1365,6 +1365,9 @@ SetDefaultACL(InternalDefaultACL *iacls)\n \t\tReleaseSysCache(tuple);\n \n \ttable_close(rel, RowExclusiveLock);\n+\n+\t/* prevent error when processing duplicate objects */\n+\tCommandCounterIncrement();\n }\n \n \n",
+  "test_patch": "diff --git a/src/test/regress/expected/privileges.out b/src/test/regress/expected/privileges.out\nindex 7754c20db47aa..5e5f98ac68a58 100644\n--- a/src/test/regress/expected/privileges.out\n+++ b/src/test/regress/expected/privileges.out\n@@ -1649,7 +1649,8 @@ SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'INSERT'); -\n  f\n (1 row)\n \n-ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT SELECT ON TABLES TO public;\n+-- placeholder for test with duplicated schema and role names\n+ALTER DEFAULT PRIVILEGES IN SCHEMA testns,testns GRANT SELECT ON TABLES TO public,public;\n SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'SELECT'); -- no\n  has_table_privilege \n ---------------------\ndiff --git a/src/test/regress/sql/privileges.sql b/src/test/regress/sql/privileges.sql\nindex 4911ad4add847..fff76e0bd08d1 100644\n--- a/src/test/regress/sql/privileges.sql\n+++ b/src/test/regress/sql/privileges.sql\n@@ -985,7 +985,8 @@ CREATE TABLE testns.acltest1 (x int);\n SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'SELECT'); -- no\n SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'INSERT'); -- no\n \n-ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT SELECT ON TABLES TO public;\n+-- placeholder for test with duplicated schema and role names\n+ALTER DEFAULT PRIVILEGES IN SCHEMA testns,testns GRANT SELECT ON TABLES TO public,public;\n \n SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'SELECT'); -- no\n SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'INSERT'); -- no\n",
+  "problem_statement": "Fix ALTER DEFAULT PRIVILEGES with duplicated objects\n\nSpecifying duplicated objects in this command would lead to unique\nconstraint violations in pg_default_acl or \"tuple already updated by\nself\" errors.  Similarly to GRANT/REVOKE, increment the command ID after\neach subcommand processing to allow this case to work transparently.\n\nA regression test is added by tweaking one of the existing queries of\nprivileges.sql to stress this case.",
+  "environment_spec": {
+    "engine": "postgres",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "src/test/regress/expected/privileges.out",
+      "src/test/regress/sql/privileges.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

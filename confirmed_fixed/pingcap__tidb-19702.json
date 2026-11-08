@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-19702",
+  "base_commit": "0338bce02956d1088c077eb768640a1f07b93436",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex c770525a251b6..6f029a8f7ec9c 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -1923,6 +1923,13 @@ func (b *PlanBuilder) buildShow(ctx context.Context, show *ast.ShowStmt) (Plan,\n \t\tp.setSchemaAndNames(buildShowNextRowID())\n \t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, show.Table.Schema.L, show.Table.Name.L, \"\", ErrPrivilegeCheckFail)\n \t\treturn p, nil\n+\tcase ast.ShowStatsBuckets, ast.ShowStatsHistograms, ast.ShowStatsMeta, ast.ShowStatsHealthy:\n+\t\tuser := b.ctx.GetSessionVars().User\n+\t\tvar err error\n+\t\tif user != nil {\n+\t\t\terr = ErrDBaccessDenied.GenWithStackByArgs(user.AuthUsername, user.AuthHostname, mysql.SystemDB)\n+\t\t}\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, mysql.SystemDB, \"\", \"\", err)\n \t}\n \tschema, names := buildShowSchema(show, isView, isSequence)\n \tp.SetSchema(schema)\n",
+  "test_patch": "diff --git a/executor/show_test.go b/executor/show_test.go\nindex bc424f2497658..b9e937d0a19ff 100644\n--- a/executor/show_test.go\n+++ b/executor/show_test.go\n@@ -157,6 +157,30 @@ func (s *testSuite5) TestShowGrantsPrivilege(c *C) {\n \ttk2.MustQuery(\"show grants\")\n }\n \n+func (s *testSuite5) TestShowStatsPrivilege(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"create user show_stats\")\n+\ttk1 := testkit.NewTestKit(c, s.store)\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Assert(err, IsNil)\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"show_stats\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\ttk1.Se = se\n+\teqErr := plannercore.ErrDBaccessDenied.GenWithStackByArgs(\"show_stats\", \"%\", mysql.SystemDB)\n+\t_, err = tk1.Exec(\"show stats_meta\")\n+\tc.Assert(err.Error(), Equals, eqErr.Error())\n+\t_, err = tk1.Exec(\"SHOW STATS_BUCKETS\")\n+\tc.Assert(err.Error(), Equals, eqErr.Error())\n+\t_, err = tk1.Exec(\"SHOW STATS_HEALTHY\")\n+\tc.Assert(err.Error(), Equals, eqErr.Error())\n+\t_, err = tk1.Exec(\"SHOW STATS_HISTOGRAMS\")\n+\tc.Assert(err.Error(), Equals, eqErr.Error())\n+\ttk.MustExec(\"grant select on mysql.* to show_stats\")\n+\ttk1.MustExec(\"show stats_meta\")\n+\ttk1.MustExec(\"SHOW STATS_BUCKETS\")\n+\ttk1.MustExec(\"SHOW STATS_HEALTHY\")\n+\ttk1.MustExec(\"SHOW STATS_HISTOGRAMS\")\n+}\n+\n func (s *testSuite5) TestIssue18878(c *C) {\n \ttk := testkit.NewTestKit(c, s.store)\n \tse, err := session.CreateSession4Test(s.store)\n",
+  "problem_statement": "P1-[4.0-bug-hunting]-[Role Based Access Control]-SHOW commands do not privilege check\n\nBug Hunter issue tidb-challenge-program/bug-hunting-issue#41\n\n---\n\n## Bug Report\r\n\r\n### 1. What did you do?\r\n\r\nI created a user with zero privileges. They are able to see tables that exist, and histograms. Histograms may still leak important data (for example, a histogram of an orders table could be used to project revenue).\r\n\r\n```\r\nCREATE USER n1;\r\n^C\r\nmysql -un1\r\n```\r\nI then ran the following:\r\n```\r\nshow stats_meta;\r\ndrop stats test.t1;\r\nSHOW STATS_BUCKETS;\r\nSHOW STATS_HEALTHY;\r\nSHOW STATS_HISTOGRAMS;\r\nLOAD STATS 'file_name';\r\n```\r\n\r\n### 2. What did you expect to see?\r\n\r\nAll commands should have failed due to permissions error.\r\n\r\n### 3. What did you see instead?\r\n\r\nAll passed (except load stats, since `file_name` does not exist.. but presumably it would pass).\r\n\r\n### 4. What version of TiDB are you using? (`tidb-server -V` or run `select tidb_version();` on TiDB)\r\n\r\n```\r\nmysql> select tidb_version()\\G\r\n*************************** 1. row ***************************\r\ntidb_version(): Release Version: v4.0.0-beta.2-290-ga0c740784\r\nGit Commit Hash: a0c7407846fbc84f939afbc091f2db54f48c1bfa\r\nGit Branch: master\r\nUTC Build Time: 2020-04-17 04:04:45\r\nGoVersion: go1.13\r\nRace Enabled: false\r\nTiKV Min Version: v3.0.0-60965b006877ca7234adaced7890d7b029ed1306\r\nCheck Table Before Drop: false\r\n1 row in set (0.00 sec)\r\n```",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/show_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

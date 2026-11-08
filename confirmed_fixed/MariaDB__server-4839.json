@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-4839",
+  "base_commit": "b09ce6268aaa63cfe28e2df4905f9bbab7e345c4",
+  "patch": "diff --git a/sql/sql_admin.cc b/sql/sql_admin.cc\nindex 92fccf778041d..d7a616417ff64 100644\n--- a/sql/sql_admin.cc\n+++ b/sql/sql_admin.cc\n@@ -1500,6 +1500,15 @@ bool mysql_assign_to_keycache(THD* thd, TABLE_LIST* tables,\n   KEY_CACHE *key_cache;\n   DBUG_ENTER(\"mysql_assign_to_keycache\");\n \n+  if (check_some_access(thd, TABLE_ACLS, tables))\n+  {\n+    my_error(ER_TABLEACCESS_DENIED_ERROR, MYF(0), \"CACHE INDEX\",\n+             thd->security_ctx->priv_user,\n+             thd->security_ctx->host_or_ip,\n+             tables->db.str, tables->table_name.str);\n+    DBUG_RETURN(TRUE);\n+  }\n+\n   THD_STAGE_INFO(thd, stage_finding_key_cache);\n   check_opt.init();\n   mysql_mutex_lock(&LOCK_global_system_variables);\n@@ -1539,6 +1548,16 @@ bool mysql_assign_to_keycache(THD* thd, TABLE_LIST* tables,\n bool mysql_preload_keys(THD* thd, TABLE_LIST* tables)\n {\n   DBUG_ENTER(\"mysql_preload_keys\");\n+\n+  if (check_some_access(thd, TABLE_ACLS, tables))\n+  {\n+    my_error(ER_TABLEACCESS_DENIED_ERROR, MYF(0), \"LOAD INDEX INTO CACHE\",\n+             thd->security_ctx->priv_user,\n+             thd->security_ctx->host_or_ip,\n+             tables->db.str, tables->table_name.str);\n+    DBUG_RETURN(TRUE);\n+  }\n+\n   /*\n     We cannot allow concurrent inserts. The storage engine reads\n     directly from the index file, bypassing the cache. It could read\n",
+  "test_patch": "diff --git a/mysql-test/main/grant5.result b/mysql-test/main/grant5.result\nindex d960ed97d49f0..4b19dd6c4b9de 100644\n--- a/mysql-test/main/grant5.result\n+++ b/mysql-test/main/grant5.result\n@@ -472,3 +472,25 @@ DROP USER foo@localhost;\n CREATE USER foo@localhost IDENTIFIED VIA not_installed_plugin;\n ERROR HY000: Plugin 'not_installed_plugin' is not loaded\n # End of 10.5 tests\n+#\n+# MDEV-37256: The permission check of LOAD INDEX INTO CACHE and CACHE INDEX is broken\n+#\n+create table t1 (c int primary key);\n+insert t1 values (1),(2);\n+create user foo@localhost;\n+connect foo,localhost,foo;\n+use test;\n+ERROR 42000: Access denied for user 'foo'@'localhost' to database 'test'\n+cache index test.t1 in default;\n+ERROR 42000: CACHE INDEX command denied to user 'foo'@'localhost' for table `test`.`t1`\n+load index into cache test.t1 key (primary);\n+ERROR 42000: LOAD INDEX INTO CACHE command denied to user 'foo'@'localhost' for table `test`.`t1`\n+cache index test.t2 in default;\n+ERROR 42000: CACHE INDEX command denied to user 'foo'@'localhost' for table `test`.`t2`\n+load index into cache test.t2 key (i2);\n+ERROR 42000: LOAD INDEX INTO CACHE command denied to user 'foo'@'localhost' for table `test`.`t2`\n+disconnect foo;\n+connection default;\n+drop table t1;\n+drop user foo@localhost;\n+# End of 10.11 tests\ndiff --git a/mysql-test/main/grant5.test b/mysql-test/main/grant5.test\nindex b58173feea309..9a983d645a66b 100644\n--- a/mysql-test/main/grant5.test\n+++ b/mysql-test/main/grant5.test\n@@ -436,3 +436,29 @@ DROP USER foo@localhost;\n CREATE USER foo@localhost IDENTIFIED VIA not_installed_plugin;\n \n --echo # End of 10.5 tests\n+\n+--echo #\n+--echo # MDEV-37256: The permission check of LOAD INDEX INTO CACHE and CACHE INDEX is broken\n+--echo #\n+create table t1 (c int primary key);\n+insert t1 values (1),(2);\n+create user foo@localhost;\n+--connect foo,localhost,foo\n+--error ER_DBACCESS_DENIED_ERROR\n+use test;\n+--error ER_TABLEACCESS_DENIED_ERROR\n+cache index test.t1 in default;\n+--error ER_TABLEACCESS_DENIED_ERROR\n+load index into cache test.t1 key (primary);\n+--error ER_TABLEACCESS_DENIED_ERROR\n+# Check that the error for non-existing and existing tables are the same\n+cache index test.t2 in default;\n+--error ER_TABLEACCESS_DENIED_ERROR\n+load index into cache test.t2 key (i2);\n+--disconnect foo\n+--connection default\n+# Cleanup\n+drop table t1;\n+drop user foo@localhost;\n+\n+--echo # End of 10.11 tests\n",
+  "problem_statement": "MDEV-37256 Add permission check for LOAD INDEX INTO CACHE and CACHE INDEX\n\nPreviously, no access check was done for these commands. Now, we require any table-level permission, which consistent with other admin commands like CHECKSUM.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/main/grant5.result",
+      "mysql-test/main/grant5.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

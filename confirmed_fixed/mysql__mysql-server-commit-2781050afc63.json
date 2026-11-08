@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-2781050afc63",
+  "base_commit": "ffd8ed17162333032e8d69454da5319c5d03b60b",
+  "patch": "diff --git a/sql/set_var.cc b/sql/set_var.cc\nindex bf68a1025377..920b153fadd6 100644\n--- a/sql/set_var.cc\n+++ b/sql/set_var.cc\n@@ -423,7 +423,8 @@ static sys_var_thd_bit\tsys_sql_big_tables(\"sql_big_tables\", 0,\n static sys_var_thd_bit\tsys_big_selects(\"sql_big_selects\", 0,\n \t\t\t\t\tset_option_bit,\n \t\t\t\t\tOPTION_BIG_SELECTS);\n-static sys_var_thd_bit\tsys_log_off(\"sql_log_off\", 0,\n+static sys_var_thd_bit\tsys_log_off(\"sql_log_off\",\n+\t\t\t\t    check_log_update,\n \t\t\t\t    set_option_bit,\n \t\t\t\t    OPTION_LOG_OFF);\n static sys_var_thd_bit\tsys_log_update(\"sql_log_update\",\n",
+  "test_patch": "diff --git a/mysql-test/r/grant2.result b/mysql-test/r/grant2.result\nindex 859637057183..c047dc033c62 100644\n--- a/mysql-test/r/grant2.result\n+++ b/mysql-test/r/grant2.result\n@@ -143,3 +143,13 @@ flush privileges;\n drop user mysqltest_3@host3;\n drop user mysqltest_1@host1, mysqltest_2@host2, mysqltest_4@host4,\n mysqltest_5@host5, mysqltest_6@host6, mysqltest_7@host7;\n+create database mysqltest_1;\n+grant select, insert, update on `mysqltest\\_1`.* to mysqltest_1@localhost;\n+set sql_log_off = 1;\n+ERROR HY000: Access denied; you need the SUPER privilege for this operation\n+set sql_log_bin = 0;\n+ERROR HY000: Access denied; you need the SUPER privilege for this operation\n+delete from mysql.user where user like 'mysqltest\\_1';\n+delete from mysql.db where user like 'mysqltest\\_1';\n+drop database mysqltest_1;\n+flush privileges;\ndiff --git a/mysql-test/t/grant2.test b/mysql-test/t/grant2.test\nindex 79ea7f70712d..9da95cd42daf 100644\n--- a/mysql-test/t/grant2.test\n+++ b/mysql-test/t/grant2.test\n@@ -238,5 +238,22 @@ connect (con9,127.0.0.1,root,,test,$MASTER_MYPORT,);\n disconnect con9;\n connection default;\n \n+#\n+# Bug# 16180 - Setting SQL_LOG_OFF without SUPER privilege is silently ignored\n+#\n+create database mysqltest_1;\n+grant select, insert, update on `mysqltest\\_1`.* to mysqltest_1@localhost;\n+connect (con10,localhost,mysqltest_1,,);\n+connection con10;\n+--error 1227\n+set sql_log_off = 1;\n+--error 1227\n+set sql_log_bin = 0;\n+disconnect con10;\n+connection default;\n+delete from mysql.user where user like 'mysqltest\\_1';\n+delete from mysql.db where user like 'mysqltest\\_1';\n+drop database mysqltest_1;\n+flush privileges;\n \n # End of 4.1 tests\n",
+  "problem_statement": "Bug#16180 Setting SQL_LOG_OFF without SUPER privilege is silently ignored",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant2.result",
+      "mysql-test/t/grant2.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

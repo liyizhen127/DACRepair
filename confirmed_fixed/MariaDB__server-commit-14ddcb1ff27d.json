@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-14ddcb1ff27d",
+  "base_commit": "43c393ff4732e9ea8719864abeb73cefd5b528a9",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 24740a0695af7..066e7e4c7f49f 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -7190,7 +7190,7 @@ bool sp_grant_privileges(THD *thd, const char *sp_db, const char *sp_name,\n   mysql_mutex_lock(&acl_cache->lock);\n \n  if ((au= find_acl_user(combo->host.str= (char *) sctx->priv_host,\n-                        combo->user.str, FALSE)))\n+                        combo->user.str, TRUE)))\n     goto found_acl;\n \n   mysql_mutex_unlock(&acl_cache->lock);\n",
+  "test_patch": "diff --git a/mysql-test/r/sp-security.result b/mysql-test/r/sp-security.result\nindex 88908b05f46dc..39237b7f3224f 100644\n--- a/mysql-test/r/sp-security.result\n+++ b/mysql-test/r/sp-security.result\n@@ -617,3 +617,24 @@ SELECT 1\tlatin1\tlatin1_swedish_ci\tlatin1_swedish_ci\n # Connection default\n DROP USER user2@localhost;\n DROP DATABASE db1;\n+create user foo@local_ost;\n+create user foo@`local\\_ost` identified by 'nevermore';\n+create database foodb;\n+grant create routine on foodb.* to foo@local_ost;\n+select user(), current_user();\n+user()\tcurrent_user()\n+foo@localhost\tfoo@local_ost\n+show grants;\n+Grants for foo@local_ost\n+GRANT USAGE ON *.* TO 'foo'@'local_ost'\n+GRANT CREATE ROUTINE ON `foodb`.* TO 'foo'@'local_ost'\n+create procedure fooproc() select 'i am fooproc';\n+show grants;\n+Grants for foo@local_ost\n+GRANT USAGE ON *.* TO 'foo'@'local_ost'\n+GRANT CREATE ROUTINE ON `foodb`.* TO 'foo'@'local_ost'\n+GRANT EXECUTE, ALTER ROUTINE ON PROCEDURE `test`.`fooproc` TO 'foo'@'local_ost'\n+drop user foo@local_ost;\n+drop user foo@`local\\_ost`;\n+drop procedure fooproc;\n+drop database foodb;\ndiff --git a/mysql-test/t/sp-security.test b/mysql-test/t/sp-security.test\nindex ca4e6b04f1307..3769bb3b4bff9 100644\n--- a/mysql-test/t/sp-security.test\n+++ b/mysql-test/t/sp-security.test\n@@ -995,7 +995,24 @@ disconnect con2;\n DROP USER user2@localhost;\n DROP DATABASE db1;\n \n+#\n+# Bug#27407480: AUTOMATIC_SP_PRIVILEGES REQUIRES NEED THE INSERT PRIVILEGES FOR MYSQL.USER TABLE\n+#\n+create user foo@local_ost;\n+create user foo@`local\\_ost` identified by 'nevermore';\n+create database foodb;\n+grant create routine on foodb.* to foo@local_ost;\n+connect con1,localhost,foo;\n+select user(), current_user();\n+show grants;\n+create procedure fooproc() select 'i am fooproc';\n+show grants;\n+disconnect con1;\n+connection default;\n+drop user foo@local_ost;\n+drop user foo@`local\\_ost`;\n+drop procedure fooproc;\n+drop database foodb;\n \n # Wait till all disconnects are completed\n --source include/wait_until_count_sessions.inc\n-\n",
+  "problem_statement": "Bug#27407480: AUTOMATIC_SP_PRIVILEGES REQUIRES NEED THE INSERT PRIVILEGES FOR MYSQL.USER TABLE\n\nA test case and a followup fix",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/sp-security.result",
+      "mysql-test/t/sp-security.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

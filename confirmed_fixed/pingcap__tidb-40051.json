@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-40051",
+  "base_commit": "017901d1d6daa1f07d8ad33f70ddbb7a286fb086",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex df7a0d893e4ed..26508814523d2 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -4522,6 +4522,14 @@ func (b *PlanBuilder) buildDDL(ctx context.Context, node ast.DDLNode) (Plan, err\n \t\t\t\t}\n \t\t\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.UpdatePriv, mysql.SystemDB,\n \t\t\t\t\t\"stats_extended\", \"\", authErr)\n+\t\t\t} else if spec.Tp == ast.AlterTableAddConstraint {\n+\t\t\t\tif b.ctx.GetSessionVars().User != nil && spec.Constraint != nil &&\n+\t\t\t\t\tspec.Constraint.Tp == ast.ConstraintForeignKey && spec.Constraint.Refer != nil {\n+\t\t\t\t\tauthErr = ErrTableaccessDenied.GenWithStackByArgs(\"REFERENCES\", b.ctx.GetSessionVars().User.AuthUsername,\n+\t\t\t\t\t\tb.ctx.GetSessionVars().User.AuthHostname, spec.Constraint.Refer.Table.Name.L)\n+\t\t\t\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.ReferencesPriv, spec.Constraint.Refer.Table.Schema.L,\n+\t\t\t\t\t\tspec.Constraint.Refer.Table.Name.L, \"\", authErr)\n+\t\t\t\t}\n \t\t\t}\n \t\t}\n \tcase *ast.AlterSequenceStmt:\n",
+  "test_patch": "diff --git a/ddl/fktest/foreign_key_test.go b/ddl/fktest/foreign_key_test.go\nindex 911f86f49ec85..13701ad5b610d 100644\n--- a/ddl/fktest/foreign_key_test.go\n+++ b/ddl/fktest/foreign_key_test.go\n@@ -319,6 +319,24 @@ func TestCreateTableWithForeignKeyPrivilegeCheck(t *testing.T) {\n \ttk2.MustExec(\"create table t4 (a int, foreign key fk(a) references t1(id), foreign key (a) references t3(id));\")\n }\n \n+func TestAlterTableWithForeignKeyPrivilegeCheck(t *testing.T) {\n+\tstore, _ := testkit.CreateMockStoreAndDomain(t)\n+\ttk := testkit.NewTestKit(t, store)\n+\ttk.MustExec(\"use test\")\n+\ttk.MustExec(\"create user 'u1'@'%' identified by '';\")\n+\ttk.MustExec(\"grant create,alter on *.* to 'u1'@'%';\")\n+\ttk.MustExec(\"create table t1 (id int key);\")\n+\ttk2 := testkit.NewTestKit(t, store)\n+\ttk2.MustExec(\"use test\")\n+\ttk2.Session().Auth(&auth.UserIdentity{Username: \"u1\", Hostname: \"localhost\", CurrentUser: true, AuthUsername: \"u1\", AuthHostname: \"%\"}, nil, []byte(\"012345678901234567890\"))\n+\ttk2.MustExec(\"create table t2 (a int)\")\n+\terr := tk2.ExecToErr(\"alter table t2 add foreign key (a) references t1 (id) on update cascade\")\n+\trequire.Error(t, err)\n+\trequire.Equal(t, \"[planner:1142]REFERENCES command denied to user 'u1'@'%' for table 't1'\", err.Error())\n+\ttk.MustExec(\"grant references on test.t1 to 'u1'@'%';\")\n+\ttk2.MustExec(\"alter table t2 add foreign key (a) references t1 (id) on update cascade\")\n+}\n+\n func TestRenameTableWithForeignKeyMetaInfo(t *testing.T) {\n \tstore, dom := testkit.CreateMockStoreAndDomain(t)\n \ttk := testkit.NewTestKit(t, store)\n",
+  "problem_statement": "issue of privilege check when alter table add foreign key\n\n## reproduce\r\n\r\n```\r\ncreate user 'u1'@'%' identified by '';\r\ngrant create,alter on *.* to 'u1'@'%';\r\ncreate table t1 (id int key);\r\n```\r\n\r\nThen use the new created user `u1` execute following SQL:\r\n\r\n```sql\r\ncreate table t2 (a int);\r\nalter table t2 add foreign key (a) references t1 (id) on update cascade;   -- need to be failed but success.\r\n```\r\n\r\nversion: master,  0c1808245b4f5960266c7f4ee860408a36b58552",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "ddl/fktest/foreign_key_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

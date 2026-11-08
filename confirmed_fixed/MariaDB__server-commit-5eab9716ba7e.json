@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-5eab9716ba7e",
+  "base_commit": "1d9b7877fc099c4e6f018c4da0014e042f64ce78",
+  "patch": "diff --git a/sql/sql_show.cc b/sql/sql_show.cc\nindex 3964e38db5e05..d07e951bfd1de 100644\n--- a/sql/sql_show.cc\n+++ b/sql/sql_show.cc\n@@ -7071,6 +7071,12 @@ bool show_create_trigger(THD *thd, const sp_name *trg_name)\n   if (!lst)\n     return TRUE;\n \n+  if (check_table_access(thd, TRIGGER_ACL, lst, 1, TRUE))\n+  {\n+    my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0), \"TRIGGER\");\n+    return TRUE;\n+  }\n+\n   /*\n     Open the table by name in order to load Table_triggers_list object.\n \n",
+  "test_patch": "diff --git a/mysql-test/r/trigger_notembedded.result b/mysql-test/r/trigger_notembedded.result\nindex 1e13bff03b1b9..335e6910a3a05 100644\n--- a/mysql-test/r/trigger_notembedded.result\n+++ b/mysql-test/r/trigger_notembedded.result\n@@ -462,4 +462,18 @@ unlock tables;\n select * from t1;\n i\n drop table t1;\n+CREATE DATABASE db1;\n+CREATE TABLE db1.t1 (a char(30)) ENGINE=MEMORY;\n+CREATE TRIGGER db1.trg AFTER INSERT ON db1.t1 FOR EACH ROW\n+INSERT INTO db1.t1 VALUES('Some very sensitive data goes here');\n+CREATE USER 'no_rights'@'localhost';\n+REVOKE ALL ON *.* FROM 'no_rights'@'localhost';\n+FLUSH PRIVILEGES;\n+SELECT trigger_name FROM INFORMATION_SCHEMA.TRIGGERS\n+WHERE trigger_schema = 'db1';\n+trigger_name\n+SHOW CREATE TRIGGER db1.trg;\n+ERROR 42000: Access denied; you need the TRIGGER privilege for this operation\n+DROP USER 'no_rights'@'localhost';\n+DROP DATABASE db1;\n End of 5.1 tests.\ndiff --git a/mysql-test/t/trigger_notembedded.test b/mysql-test/t/trigger_notembedded.test\nindex 9588ec6e3ed87..7a7e6c6bc85fe 100644\n--- a/mysql-test/t/trigger_notembedded.test\n+++ b/mysql-test/t/trigger_notembedded.test\n@@ -909,4 +909,27 @@ select * from t1;\n drop table t1;\n disconnect flush;\n \n+#\n+# Bug#45412 SHOW CREATE TRIGGER does not require privileges to disclose trigger data\n+#\n+CREATE DATABASE db1;\n+CREATE TABLE db1.t1 (a char(30)) ENGINE=MEMORY;\n+CREATE TRIGGER db1.trg AFTER INSERT ON db1.t1 FOR EACH ROW\n+ INSERT INTO db1.t1 VALUES('Some very sensitive data goes here');\n+\n+CREATE USER 'no_rights'@'localhost';\n+REVOKE ALL ON *.* FROM 'no_rights'@'localhost';\n+FLUSH PRIVILEGES;\n+\n+connect (con1,localhost,no_rights,,);\n+SELECT trigger_name FROM INFORMATION_SCHEMA.TRIGGERS\n+ WHERE trigger_schema = 'db1';\n+--error ER_SPECIFIC_ACCESS_DENIED_ERROR\n+SHOW CREATE TRIGGER db1.trg;\n+\n+connection default;\n+disconnect con1;\n+DROP USER 'no_rights'@'localhost';\n+DROP DATABASE db1;\n+\n --echo End of 5.1 tests.\n",
+  "problem_statement": "Bug#45412 SHOW CREATE TRIGGER does not require privileges to disclose trigger data\nAdded privilege checking to SHOW CREATE TRIGGER code.\n\n\n\nmysql-test/r/trigger_notembedded.result:\n  test result\nmysql-test/t/trigger_notembedded.test:\n  test case\nsql/sql_show.cc:\n  Added privilege checking to SHOW CREATE TRIGGER code.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/trigger_notembedded.result",
+      "mysql-test/t/trigger_notembedded.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

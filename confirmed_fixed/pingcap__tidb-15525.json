@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-15525",
+  "base_commit": "7a09249a742df5144ae9364b4d7fca88b0c83a99",
+  "patch": "diff --git a/executor/simple.go b/executor/simple.go\nindex a27d82f967abc..3e40dffc1edcd 100644\n--- a/executor/simple.go\n+++ b/executor/simple.go\n@@ -251,7 +251,12 @@ func (e *SimpleExec) setDefaultRoleAll(s *ast.SetDefaultRoleStmt) error {\n \t\t\treturn ErrCannotUser.GenWithStackByArgs(\"SET DEFAULT ROLE\", user.String())\n \t\t}\n \t}\n-\tsqlExecutor := e.ctx.(sqlexec.SQLExecutor)\n+\trestrictedCtx, err := e.getSysSession()\n+\tif err != nil {\n+\t\treturn err\n+\t}\n+\tdefer e.releaseSysSession(restrictedCtx)\n+\tsqlExecutor := restrictedCtx.(sqlexec.SQLExecutor)\n \tif _, err := sqlExecutor.Execute(context.Background(), \"begin\"); err != nil {\n \t\treturn err\n \t}\n",
+  "test_patch": "diff --git a/executor/simple_test.go b/executor/simple_test.go\nindex 2e365de48053d..5db1950220c00 100644\n--- a/executor/simple_test.go\n+++ b/executor/simple_test.go\n@@ -327,6 +327,19 @@ func (s *testSuite3) TestDefaultRole(c *C) {\n \ttk.MustExec(dropRoleSQL)\n }\n \n+func (s *testSuite7) TestSetDefaultRoleAll(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"create user test_all;\")\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Check(err, IsNil)\n+\tdefer se.Close()\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"test_all\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\n+\tctx := context.Background()\n+\t_, err = se.Execute(ctx, \"set default role all to test_all;\")\n+\tc.Assert(err, IsNil)\n+}\n+\n func (s *testSuite7) TestUser(c *C) {\n \ttk := testkit.NewTestKit(c, s.store)\n \t// Make sure user test not in mysql.User.\n",
+  "problem_statement": "privilege: use internal session to run `SET DEFAULT ROL ALL`\n\n`SET DEFAULT ROLE ALL` is using context session to run internal SQL. Error will occur if user don't have `SELECT` privilege on `mysql.default_roles`\r\n\r\n### What is changed and how it works?\r\n\r\nusing internal session to run `SET DEFAULT ALL`\r\n\r\n### Related changes\r\n\r\n- Need to cherry-pick to the release branch",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/simple_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

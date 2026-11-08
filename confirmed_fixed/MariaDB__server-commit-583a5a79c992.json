@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-583a5a79c992",
+  "base_commit": "9e1fb104a3451bd33c70d8399d1e881d008c07fb",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 3dd23923558f2..96886fb017561 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -2401,7 +2401,8 @@ static int set_user_auth(THD *thd, const LEX_CSTRING &user,\n     res= ER_NOT_VALID_PASSWORD;\n     goto end;\n   }\n-  if (pwtext.length)\n+\n+  if (!auth->auth_string.length)\n   {\n     if (info->hash_password)\n     {\n@@ -2416,7 +2417,7 @@ static int set_user_auth(THD *thd, const LEX_CSTRING &user,\n       auth->auth_string.str= (char*)memdup_root(&acl_memroot, buf, len+1);\n       auth->auth_string.length= len;\n     }\n-    else\n+    else if (pwtext.length)\n     {\n       res= ER_SET_PASSWORD_AUTH_PLUGIN;\n       goto end;\n",
+  "test_patch": "diff --git a/mysql-test/suite/plugins/r/parsec.result b/mysql-test/suite/plugins/r/parsec.result\nindex 98b67c4d09dd2..a7472d0e6668b 100644\n--- a/mysql-test/suite/plugins/r/parsec.result\n+++ b/mysql-test/suite/plugins/r/parsec.result\n@@ -28,3 +28,18 @@ test.have_ssl()\n yes\n drop function have_ssl;\n drop user test1@'%';\n+# MDEV-34854 Parsec sends garbage when using an empty password\n+create user test2@'%' identified via parsec using PASSWORD('');\n+show grants for test2@'%';\n+Grants for test2@%\n+GRANT USAGE ON *.* TO `test2`@`%` IDENTIFIED VIA parsec USING 'P0:salt:password'\n+connect con4, localhost, test2,;\n+select 4, USER(), CURRENT_USER();\n+4\tUSER()\tCURRENT_USER()\n+4\ttest2@localhost\ttest2@%\n+disconnect con4;\n+connect(localhost,test2,wrong_pwd,test,MASTER_MYPORT,MASTER_MYSOCK);\n+connect con5, localhost, test2, \"wrong_pwd\";\n+ERROR 28000: Access denied for user 'test2'@'localhost' (using password: NO)\n+connection default;\n+drop user test2@'%';\ndiff --git a/mysql-test/suite/plugins/t/parsec.test b/mysql-test/suite/plugins/t/parsec.test\nindex 25db07bcbe4ff..f021b1d100752 100644\n--- a/mysql-test/suite/plugins/t/parsec.test\n+++ b/mysql-test/suite/plugins/t/parsec.test\n@@ -43,3 +43,18 @@ if ($MTR_COMBINATION_WIN) {\n \n drop function have_ssl;\n drop user test1@'%';\n+\n+\n+--echo # MDEV-34854 Parsec sends garbage when using an empty password\n+create user test2@'%' identified via parsec using PASSWORD('');\n+--replace_regex /:[A-Za-z0-9+\\/]{43}'/:password'/ /:[A-Za-z0-9+\\/]{24}:/:salt:/\n+show grants for test2@'%';\n+connect con4, localhost, test2,;\n+select 4, USER(), CURRENT_USER();\n+disconnect con4;\n+\n+--replace_result $MASTER_MYSOCK MASTER_MYSOCK $MASTER_MYPORT MASTER_MYPORT\n+--error ER_ACCESS_DENIED_ERROR\n+connect con5, localhost, test2, \"wrong_pwd\";\n+connection default;\n+drop user test2@'%';\n",
+  "problem_statement": "Parsec sends garbage when using an empty password\n\nAbout parsec authentication, when user has an empty password, user doesn't have an authentication_string set (visible in mysql.user). \r\nExchanges when creating a connection results then sends unexpected data when asking for ext-salt.\r\n\r\nexample when using an empty password, packet is for example : \r\n{code:java}\r\n+--------------------------------------------------+\r\n|  0  1  2  3  4  5  6  7   8  9  a  b  c  d  e  f |\r\n+--------------------------------------------------+------------------+\r\n| 14 00 00 04 00 04 00 05  00 06 00 07 00 08 00 0B | ................ |\r\n| 00 0E 00 0F 00 10 00 13                          | ........         |\r\n+--------------------------------------------------+------------------+\r\n{code}\r\n\r\n\r\nin place of something that begins with 'P0' like : \r\n{code:java}\r\n+--------------------------------------------------+\r\n|  0  1  2  3  4  5  6  7   8  9  a  b  c  d  e  f |\r\n+--------------------------------------------------+------------------+\r\n| 14 00 00 04 50 00 01 A5  ED 67 34 40 70 2A E3 8A | ....P....g4@p*.. |\r\n| 00 A2 BB 63 6B 9C D3 13                          | ...ck...         |\r\n+--------------------------------------------------+------------------+\r\n{code}",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/plugins/r/parsec.result",
+      "mysql-test/suite/plugins/t/parsec.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-1ac5987ae2e9",
+  "base_commit": "e84584e2e34c9c32b132f785909c576cb233f9c3",
+  "patch": "diff --git a/sql/sql_view.cc b/sql/sql_view.cc\nindex 7143df8474a5..714534707d12 100644\n--- a/sql/sql_view.cc\n+++ b/sql/sql_view.cc\n@@ -224,6 +224,7 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,\n {\n   LEX *lex= thd->lex;\n   bool link_to_local;\n+  bool definer_check_is_needed= mode != VIEW_ALTER || lex->definer;\n   /* first table in list is target VIEW name => cut off it */\n   TABLE_LIST *view= lex->unlink_first_table(&link_to_local);\n   TABLE_LIST *tables= lex->query_tables;\n@@ -256,8 +257,9 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,\n     /*\n       DEFINER-clause is missing; we have to create default definer in\n       persistent arena to be PS/SP friendly.\n+      If this is an ALTER VIEW then the current user should be set as\n+      the definer.\n     */\n-\n     Query_arena original_arena;\n     Query_arena *ps_arena = thd->activate_stmt_arena_if_needed(&original_arena);\n \n@@ -277,11 +279,11 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,\n       - same as current user\n       - current user has SUPER_ACL\n   */\n-  if (strcmp(lex->definer->user.str,\n-             thd->security_ctx->priv_user) != 0 ||\n-      my_strcasecmp(system_charset_info,\n-                    lex->definer->host.str,\n-                    thd->security_ctx->priv_host) != 0)\n+  if (definer_check_is_needed &&\n+      (strcmp(lex->definer->user.str, thd->security_ctx->priv_user) != 0 ||\n+       my_strcasecmp(system_charset_info,\n+                     lex->definer->host.str,\n+                     thd->security_ctx->priv_host) != 0))\n   {\n     if (!(thd->security_ctx->master_access & SUPER_ACL))\n     {\n",
+  "test_patch": "diff --git a/mysql-test/r/view_grant.result b/mysql-test/r/view_grant.result\nindex 45cf5076fe16..6fec52896c9f 100644\n--- a/mysql-test/r/view_grant.result\n+++ b/mysql-test/r/view_grant.result\n@@ -773,4 +773,25 @@ DROP DATABASE mysqltest_db1;\n DROP DATABASE mysqltest_db2;\n DROP USER mysqltest_u1@localhost;\n DROP USER mysqltest_u2@localhost;\n+CREATE DATABASE db26813;\n+USE db26813;\n+CREATE TABLE t1(f1 INT, f2 INT);\n+CREATE VIEW v1 AS SELECT f1 FROM t1;\n+CREATE VIEW v2 AS SELECT f1 FROM t1;\n+CREATE VIEW v3 AS SELECT f1 FROM t1;\n+CREATE USER u26813@localhost;\n+GRANT DROP ON db26813.v1 TO u26813@localhost;\n+GRANT CREATE VIEW ON db26813.v2 TO u26813@localhost;\n+GRANT DROP, CREATE VIEW ON db26813.v3 TO u26813@localhost;\n+GRANT SELECT ON db26813.t1 TO u26813@localhost;\n+ALTER VIEW v1 AS SELECT f2 FROM t1;\n+ERROR 42000: CREATE VIEW command denied to user 'u26813'@'localhost' for table 'v1'\n+ALTER VIEW v2 AS SELECT f2 FROM t1;\n+ERROR 42000: DROP command denied to user 'u26813'@'localhost' for table 'v2'\n+ALTER VIEW v3 AS SELECT f2 FROM t1;\n+SHOW CREATE VIEW v3;\n+View\tCreate View\n+v3\tCREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v3` AS select `t1`.`f2` AS `f2` from `t1`\n+DROP USER u26813@localhost;\n+DROP DATABASE db26813;\n End of 5.0 tests.\ndiff --git a/mysql-test/t/view_grant.test b/mysql-test/t/view_grant.test\nindex 0785b74dd477..b45afe4f312b 100644\n--- a/mysql-test/t/view_grant.test\n+++ b/mysql-test/t/view_grant.test\n@@ -1034,5 +1034,36 @@ DROP DATABASE mysqltest_db2;\n DROP USER mysqltest_u1@localhost;\n DROP USER mysqltest_u2@localhost;\n \n+#\n+# Bug#26813: The SUPER privilege is wrongly required to alter a view created\n+#            by another user.\n+#\n+connection root;\n+CREATE DATABASE db26813;\n+USE db26813;\n+CREATE TABLE t1(f1 INT, f2 INT);\n+CREATE VIEW v1 AS SELECT f1 FROM t1;\n+CREATE VIEW v2 AS SELECT f1 FROM t1;\n+CREATE VIEW v3 AS SELECT f1 FROM t1;\n+CREATE USER u26813@localhost;\n+GRANT DROP ON db26813.v1 TO u26813@localhost;\n+GRANT CREATE VIEW ON db26813.v2 TO u26813@localhost;\n+GRANT DROP, CREATE VIEW ON db26813.v3 TO u26813@localhost;\n+GRANT SELECT ON db26813.t1 TO u26813@localhost;\n+\n+connect (u1,localhost,u26813,,db26813);\n+connection u1;\n+--error 1142\n+ALTER VIEW v1 AS SELECT f2 FROM t1;\n+--error 1142\n+ALTER VIEW v2 AS SELECT f2 FROM t1;\n+ALTER VIEW v3 AS SELECT f2 FROM t1;\n+\n+connection root;\n+SHOW CREATE VIEW v3;\n+\n+DROP USER u26813@localhost;\n+DROP DATABASE db26813;\n+disconnect u1;\n \n --echo End of 5.0 tests.\n",
+  "problem_statement": "Bug#26813: The SUPER privilege is wrongly required to alter a view created by\nanother user.\n\nWhen the DEFINER clause isn't specified in the ALTER statement then it's loaded\nfrom the view definition. If the definer differs from the current user then\nthe error is thrown because only a super-user can set other users as a definers.\n\nNow if the DEFINER clause is omitted in the ALTER VIEW statement then the\ndefiner from the original view is used without check.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/view_grant.result",
+      "mysql-test/t/view_grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

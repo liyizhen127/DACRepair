@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-305f78c374bb",
+  "base_commit": "fccc33a3ca31a458017b4a8e3ab9378980a09170",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 0592bb3be1d2..5259b5605329 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -3451,6 +3451,13 @@ bool mysql_grant(THD *thd, const char *db, List <LEX_USER> &list,\n       result= TRUE;\n       continue;\n     }\n+    /*\n+      No User, but a password?\n+      They did GRANT ... TO CURRENT_USER() IDENTIFIED BY ... !\n+      Get the current user, and shallow-copy the new password to them!\n+    */\n+    if (!tmp_Str->user.str && tmp_Str->password.str)\n+      Str->password= tmp_Str->password;\n     if (replace_user_table(thd, tables[0].table, *Str,\n                            (!db ? rights : 0), revoke_grant, create_new_users,\n                            test(thd->variables.sql_mode &\ndiff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 2e150ca1542b..65d868140456 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -7573,6 +7573,9 @@ void get_default_definer(THD *thd, LEX_USER *definer)\n \n   definer->host.str= (char *) sctx->priv_host;\n   definer->host.length= strlen(definer->host.str);\n+\n+  definer->password.str= NULL;\n+  definer->password.length= 0;\n }\n \n \n@@ -7624,6 +7627,8 @@ LEX_USER *create_definer(THD *thd, LEX_STRING *user_name, LEX_STRING *host_name)\n \n   definer->user= *user_name;\n   definer->host= *host_name;\n+  definer->password.str= NULL;\n+  definer->password.length= 0;\n \n   return definer;\n }\n",
+  "test_patch": "diff --git a/mysql-test/r/grant2.result b/mysql-test/r/grant2.result\nindex 7c2023127f08..12269f0cb1c8 100644\n--- a/mysql-test/r/grant2.result\n+++ b/mysql-test/r/grant2.result\n@@ -443,3 +443,30 @@ DROP TABLE db1.t1, db1.t2;\n DROP USER mysqltest1@localhost;\n DROP DATABASE db1;\n End of 5.0 tests\n+USE mysql;\n+SELECT LEFT(CURRENT_USER(),INSTR(CURRENT_USER(),'@')-1) INTO @u;\n+SELECT MID(CURRENT_USER(),INSTR(CURRENT_USER(),'@')+1)  INTO @h;\n+SELECT password FROM user WHERE user=@u AND host=@h INTO @pwd;\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+user\thost\tpassword\tinsert_priv\n+root\tlocalhost\t\tY\n+UPDATE user SET insert_priv='N' WHERE user=@u AND host=@h;\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+user\thost\tpassword\tinsert_priv\n+root\tlocalhost\t\tN\n+GRANT INSERT ON *.* TO CURRENT_USER();\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+user\thost\tpassword\tinsert_priv\n+root\tlocalhost\t\tY\n+UPDATE user SET insert_priv='N' WHERE user=@u AND host=@h;\n+GRANT INSERT ON *.* TO CURRENT_USER() IDENTIFIED BY 'keksdose';\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+user\thost\tpassword\tinsert_priv\n+root\tlocalhost\t*0BB7188CF0DE9B403BA66E9DD810D82652D002EB\tY\n+UPDATE user SET password=@pwd WHERE user=@u AND host=@h;\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+user\thost\tpassword\tinsert_priv\n+root\tlocalhost\t\tY\n+FLUSH PRIVILEGES;\n+USE test;\n+End of 5.1 tests\ndiff --git a/mysql-test/t/grant2.test b/mysql-test/t/grant2.test\nindex 54cdf8d6cc1f..447848013f9b 100644\n--- a/mysql-test/t/grant2.test\n+++ b/mysql-test/t/grant2.test\n@@ -632,5 +632,40 @@ DROP DATABASE db1;\n \n --echo End of 5.0 tests\n \n+#\n+# Bug #48319: Server crashes on \"GRANT/REVOKE ... TO CURRENT_USER\"\n+#\n+\n+# work out who we are.\n+USE mysql;\n+SELECT LEFT(CURRENT_USER(),INSTR(CURRENT_USER(),'@')-1) INTO @u;\n+SELECT MID(CURRENT_USER(),INSTR(CURRENT_USER(),'@')+1)  INTO @h;\n+SELECT password FROM user WHERE user=@u AND host=@h INTO @pwd;\n+\n+# show current privs.\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+\n+# toggle INSERT\n+UPDATE user SET insert_priv='N' WHERE user=@u AND host=@h;\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+\n+# show that GRANT ... TO CURRENT_USER() no longer crashes\n+GRANT INSERT ON *.* TO CURRENT_USER();\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+UPDATE user SET insert_priv='N' WHERE user=@u AND host=@h;\n+\n+# show that GRANT ... TO CURRENT_USER() IDENTIFIED BY ... works now\n+GRANT INSERT ON *.* TO CURRENT_USER() IDENTIFIED BY 'keksdose';\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+\n+UPDATE user SET password=@pwd WHERE user=@u AND host=@h;\n+SELECT user,host,password,insert_priv FROM user WHERE user=@u AND host=@h;\n+\n+FLUSH PRIVILEGES;\n+\n+USE test;\n+\n+--echo End of 5.1 tests\n+\n # Wait till we reached the initial number of concurrent sessions\n --source include/wait_until_count_sessions.inc\n",
+  "problem_statement": "Bug#48319: Server crashes on \"GRANT/REVOKE ... TO CURRENT_USER\"\n\nCURRENT_USER() in GRANT ... TO CURRENT_USER() only gave us a definer,\nnot a full user (i.e., password-element was not initiliazed). Hence\ndereferencing the password led to a crash.\n\nProperly initializes definers now, just so there are no misunderstandings.\nAlso does some magic so IDENTIFIED BY ... works with CURRENT_USER().",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant2.result",
+      "mysql-test/t/grant2.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

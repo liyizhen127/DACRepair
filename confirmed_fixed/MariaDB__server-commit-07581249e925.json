@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-07581249e925",
+  "base_commit": "e30f30d43b0fcb955bd34f773d0cd87cf470d1ca",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex 32cb77f7db4ed..4e9e642d9d926 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -1532,6 +1532,11 @@ class User_table_json: public User_table\n   {\n     privilege_t mask= ALL_KNOWN_ACL_100304;\n     ulonglong orig_access= access;\n+    if (version_id < 101100)\n+    {\n+      if (access & SUPER_ACL)\n+        access|= READ_ONLY_ADMIN_ACL;\n+    }\n     if (version_id >= 100509)\n     {\n       mask= ALL_KNOWN_ACL_100509;\n",
+  "test_patch": "diff --git a/mysql-test/suite/sys_vars/r/read_only_grant.result b/mysql-test/suite/sys_vars/r/read_only_grant.result\nindex 81554183c1312..455390eb4fce9 100644\n--- a/mysql-test/suite/sys_vars/r/read_only_grant.result\n+++ b/mysql-test/suite/sys_vars/r/read_only_grant.result\n@@ -29,3 +29,12 @@ ERROR HY000: Variable 'read_only' is a GLOBAL variable and should be set with SE\n disconnect user1;\n connection default;\n DROP USER user1@localhost;\n+#\n+# MDEV-29632 SUPER users created before 10.11 should retain READ_ONLY ADMIN privilege upon upgrade\n+#\n+insert mysql.global_priv values ('bar', 'foo', '{\"access\":32768,\"version_id\":101000,\"plugin\":\"mysql_native_password\",\"authentication_string\":\"\"}');\n+flush privileges;\n+show grants for foo@bar;\n+Grants for foo@bar\n+GRANT SUPER, READ_ONLY ADMIN ON *.* TO `foo`@`bar`\n+drop user foo@bar;\ndiff --git a/mysql-test/suite/sys_vars/t/read_only_grant.test b/mysql-test/suite/sys_vars/t/read_only_grant.test\nindex ccdd0f4636200..9e82f30c9259c 100644\n--- a/mysql-test/suite/sys_vars/t/read_only_grant.test\n+++ b/mysql-test/suite/sys_vars/t/read_only_grant.test\n@@ -35,3 +35,11 @@ SET SESSION read_only=0;\n --disconnect user1\n --connection default\n DROP USER user1@localhost;\n+\n+--echo #\n+--echo # MDEV-29632 SUPER users created before 10.11 should retain READ_ONLY ADMIN privilege upon upgrade\n+--echo #\n+insert mysql.global_priv values ('bar', 'foo', '{\"access\":32768,\"version_id\":101000,\"plugin\":\"mysql_native_password\",\"authentication_string\":\"\"}');\n+flush privileges;\n+show grants for foo@bar;\n+drop user foo@bar;\n",
+  "problem_statement": "SUPER users created before 10.11 should retain READ_ONLY ADMIN privilege upon upgrade\n\nMDEV-29596 removed {{READ_ONLY ADMIN}} privilege from the {{SUPER}} alias, so *new* users which are granted SUPER privilege won't get {{READ_ONLY ADMIN}} automatically. However, to maintain backward compatibility, the *old* users (created before the change) which have {{SUPER}} privilege shouldn't lose the {{READ_ONLY ADMIN}} capacity, so {{READ_ONLY ADMIN}} privilege should be granted to them upon upgrade.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/suite/sys_vars/r/read_only_grant.result",
+      "mysql-test/suite/sys_vars/t/read_only_grant.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

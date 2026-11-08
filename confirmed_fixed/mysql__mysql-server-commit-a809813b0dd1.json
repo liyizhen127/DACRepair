@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-a809813b0dd1",
+  "base_commit": "e3a13c26bda48e4eafe03e964d9417fdd48535a5",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 6277a6c0c108..77525b49fdfe 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -5252,7 +5252,17 @@ check_access(THD *thd, ulong want_access, const char *db, ulong *save_priv,\n   Security_context *sctx= thd->security_ctx;\n #ifndef NO_EMBEDDED_ACCESS_CHECKS\n   ulong db_access;\n-  bool  db_is_pattern= test(want_access & GRANT_ACL);\n+  /*\n+    GRANT command:\n+    In case of database level grant the database name may be a pattern,\n+    in case of table|column level grant the database name can not be a pattern.\n+    We use 'dont_check_global_grants' as a flag to determine\n+    if it's database level grant command \n+    (see SQLCOM_GRANT case, mysql_execute_command() function) and\n+    set db_is_pattern according to 'dont_check_global_grants' value.\n+  */\n+  bool  db_is_pattern= (test(want_access & GRANT_ACL) &&\n+                        dont_check_global_grants);\n #endif\n   ulong dummy;\n   DBUG_ENTER(\"check_access\");\n",
+  "test_patch": "diff --git a/mysql-test/r/grant2.result b/mysql-test/r/grant2.result\nindex 93098e68070f..6de9a83aeed8 100644\n--- a/mysql-test/r/grant2.result\n+++ b/mysql-test/r/grant2.result\n@@ -403,4 +403,22 @@ use test;\n drop database mysqltest_1;\n drop database mysqltest_2;\n drop user mysqltest_u1@localhost;\n+grant all on `mysqltest\\_%`.* to mysqltest_1@localhost with grant option;\n+grant usage on *.* to mysqltest_2@localhost;\n+create database mysqltest_1;\n+use mysqltest_1;\n+create table t1 (f1 int);\n+grant create on `mysqltest\\_1`.* to mysqltest_2@localhost;\n+grant select on mysqltest_1.t1 to mysqltest_2@localhost;\n+create database mysqltest_3;\n+ERROR 42000: Access denied for user 'mysqltest_2'@'localhost' to database 'mysqltest_3'\n+use mysqltest_1;\n+create table t2(f1 int);\n+select * from t1;\n+f1\n+drop database mysqltest_1;\n+revoke all privileges, grant option from mysqltest_1@localhost;\n+revoke all privileges, grant option from mysqltest_2@localhost;\n+drop user mysqltest_1@localhost;\n+drop user mysqltest_2@localhost;\n End of 5.0 tests\ndiff --git a/mysql-test/t/grant2.test b/mysql-test/t/grant2.test\nindex 4a3324b18333..a3a8e2d5d539 100644\n--- a/mysql-test/t/grant2.test\n+++ b/mysql-test/t/grant2.test\n@@ -555,5 +555,35 @@ drop database mysqltest_1;\n drop database mysqltest_2;\n drop user mysqltest_u1@localhost;\n \n+#\n+# Bug#18660 Can't grant any privileges on single table in database\n+#  with underscore char\n+#\n+grant all on `mysqltest\\_%`.* to mysqltest_1@localhost with grant option;\n+grant usage on *.* to mysqltest_2@localhost;\n+connect (con18600_1,localhost,mysqltest_1,,);\n+\n+create database mysqltest_1;\n+use mysqltest_1;\n+create table t1 (f1 int);\n+\n+grant create on `mysqltest\\_1`.* to mysqltest_2@localhost;\n+grant select on mysqltest_1.t1 to mysqltest_2@localhost;\n+connect (con3,localhost,mysqltest_2,,);\n+connection con3;\n+--error 1044\n+create database mysqltest_3;\n+use mysqltest_1;\n+create table t2(f1 int);\n+select * from t1;\n+connection default;\n+drop database mysqltest_1;\n+\n+revoke all privileges, grant option from mysqltest_1@localhost;\n+revoke all privileges, grant option from mysqltest_2@localhost;\n+drop user mysqltest_1@localhost;\n+drop user mysqltest_2@localhost;\n+\n+\n --echo End of 5.0 tests\n \n",
+  "problem_statement": "Bug#18660 Can't grant any privileges on single table in database with underscore char\nIn case of database level grant the database name may be a pattern,\nin case of table|column level grant the database name can not be a pattern.\nWe use 'dont_check_global_grants' as a flag to determine\nif it's database level grant command \n(see SQLCOM_GRANT case, mysql_execute_command() function) and\nset db_is_pattern according to 'dont_check_global_grants' value.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant2.result",
+      "mysql-test/t/grant2.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

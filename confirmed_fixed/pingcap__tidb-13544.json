@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-13544",
+  "base_commit": "af2a2c532180b69f3ba4b5c10ffd9f6ce2adf860",
+  "patch": "diff --git a/privilege/privileges/privileges.go b/privilege/privileges/privileges.go\nindex 62cb61290ebd7..aaaaff623afc4 100644\n--- a/privilege/privileges/privileges.go\n+++ b/privilege/privileges/privileges.go\n@@ -138,7 +138,7 @@ func (p *UserPrivileges) ConnectionVerification(user, host string, authenticatio\n \t// empty password\n \tif len(pwd) == 0 && len(authentication) == 0 {\n \t\tp.user = user\n-\t\tp.host = host\n+\t\tp.host = h\n \t\tsuccess = true\n \t\treturn\n \t}\n@@ -158,7 +158,7 @@ func (p *UserPrivileges) ConnectionVerification(user, host string, authenticatio\n \t}\n \n \tp.user = user\n-\tp.host = host\n+\tp.host = h\n \tsuccess = true\n \treturn\n }\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex 2bcdbab8f0116..50c22a231d7e2 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -693,6 +693,24 @@ func (s *testPrivilegeSuite) TestGetEncodedPassword(c *C) {\n \tc.Assert(pc.GetEncodedPassword(\"test_encode_u\", \"localhost\"), Equals, \"*81F5E21E35407D884A6CD4A731AEBFB6AF209E1B\")\n }\n \n+func (s *testPrivilegeSuite) TestAuthHost(c *C) {\n+\trootSe := newSession(c, s.store, s.dbName)\n+\tse := newSession(c, s.store, s.dbName)\n+\tmustExec(c, rootSe, `CREATE USER 'test_auth_host'@'%';`)\n+\tmustExec(c, rootSe, `GRANT ALL ON *.* TO 'test_auth_host'@'%' WITH GRANT OPTION;`)\n+\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"test_auth_host\", Hostname: \"192.168.0.10\"}, nil, nil), IsTrue)\n+\tmustExec(c, se, \"CREATE USER 'test_auth_host'@'192.168.%';\")\n+\tmustExec(c, se, \"GRANT SELECT ON *.* TO 'test_auth_host'@'192.168.%';\")\n+\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"test_auth_host\", Hostname: \"192.168.0.10\"}, nil, nil), IsTrue)\n+\t_, err := se.Execute(context.Background(), \"create user test_auth_host_a\")\n+\tc.Assert(err, NotNil)\n+\n+\tmustExec(c, rootSe, \"DROP USER 'test_auth_host'@'192.168.%';\")\n+\tmustExec(c, rootSe, \"DROP USER 'test_auth_host'@'%';\")\n+}\n+\n func (s *testPrivilegeSuite) TestDefaultRoles(c *C) {\n \trootSe := newSession(c, s.store, s.dbName)\n \tmustExec(c, rootSe, `CREATE USER 'testdefault'@'localhost';`)\n",
+  "problem_statement": "privilege: add `authHost` and use `authHost` to verificate\n\nTiDB will fail in this case:\r\n```\r\n// mysql -u root -p -h 192.168.198.7 -P 4000\r\nmysql> create user 'root'@'192.168.%';\r\nQuery OK, 0 rows affected (0.01 sec)\r\n\r\nmysql> select current_user();\r\n+----------------+\r\n| current_user() |\r\n+----------------+\r\n| root@%         |\r\n+----------------+\r\n1 row in set (0.00 sec)\r\n\r\nmysql> grant all on *.* to 'root'@'192.168.%';\r\nERROR 1105 (HY000): privilege check fail\r\nmysql>\r\n```\r\n\r\nWhen `'root'@'192.168.%'` was created, although current user is still `'root'@'%'`, host field in `UserManager` is `192.168.198.7` which will match with `192.168.%`. TiDB do verification use `HostName` rather than `AuthHostName`.\r\n\r\n### What is changed and how it works?\r\nAdd `authHost` field which was init at logging in. For example, if `'root'@'%'` log in  at `192.168.0.10`, it's `authHost` is `%`. TiDB always use this `authHost` to  verificate.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-27738",
+  "base_commit": "1750d49a0be7d8271aa8608eccdd1fde5f494db4",
+  "patch": "diff --git a/executor/grant.go b/executor/grant.go\nindex 22bc5963b5c79..3652c911f8538 100644\n--- a/executor/grant.go\n+++ b/executor/grant.go\n@@ -87,7 +87,7 @@ func (e *GrantExec) Next(ctx context.Context, req *chunk.Chunk) error {\n \t\tif len(e.Level.DBName) > 0 {\n \t\t\t// The database name should also match.\n \t\t\tdb, succ := schema.SchemaByName(dbNameStr)\n-\t\t\tif !succ || db.Name.String() != dbName {\n+\t\t\tif !succ || db.Name.L != dbNameStr.L {\n \t\t\t\treturn err\n \t\t\t}\n \t\t}\n",
+  "test_patch": "diff --git a/executor/grant_test.go b/executor/grant_test.go\nindex c422aef2f4f73..82595080d943b 100644\n--- a/executor/grant_test.go\n+++ b/executor/grant_test.go\n@@ -397,9 +397,6 @@ func (s *testSuite3) TestGrantOnNonExistTable(c *C) {\n \t// Case sensitive\n \t_, err = tk.Exec(\"grant Select,Insert on XX to 'genius'\")\n \tc.Assert(terror.ErrorEqual(err, infoschema.ErrTableNotExists), IsTrue)\n-\t// The database name should also case sensitive match.\n-\t_, err = tk.Exec(\"grant Select,Insert on Test.xx to 'genius'\")\n-\tc.Assert(terror.ErrorEqual(err, infoschema.ErrTableNotExists), IsTrue)\n \n \t_, err = tk.Exec(\"grant Select,Insert on xx to 'genius'\")\n \tc.Assert(err, IsNil)\ndiff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex db46a6ac63f29..9b950445d4de1 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -2464,3 +2464,11 @@ func TestPlacementPolicyStmt(t *testing.T) {\n \tmustExec(t, se, dropStmt)\n \n }\n+\n+func TestDBNameCaseSensitivityInTableLevel(t *testing.T) {\n+\tstore, clean := newStore(t)\n+\tdefer clean()\n+\tse := newSession(t, store, dbName)\n+\tmustExec(t, se, \"CREATE USER test_user\")\n+\tmustExec(t, se, \"grant select on metrics_schema.up to test_user;\")\n+}\n",
+  "problem_statement": "Granting privileges to a specific table in `metrics_schema` reports error\n\n## Bug Report\r\n\r\nPlease answer these questions before submitting your issue. Thanks!\r\n\r\n### 1. Minimal reproduce step (Required)\r\n\r\n\r\n\r\n```sql\r\nmysql> grant select on metrics_schema.up to test_user;\r\nERROR 1146 (42S02): Table 'metrics_schema.up' doesn't exist\r\n```\r\n\r\nThe same problem exists for `performance_schema`.\r\n\r\n### 2. What did you expect to see? (Required)\r\n\r\n```sql\r\nmysql> grant select on metrics_schema.up to test_user;\r\nQuery OK, 0 rows affected (0.05 sec)\r\n```\r\n\r\n### 3. What did you see instead (Required)\r\n\r\n```sql\r\nmysql> grant select on metrics_schema.up to test_user;\r\nERROR 1146 (42S02): Table 'metrics_schema.up' doesn't exist\r\n```\r\n\r\n### 4. What is your TiDB version? (Required)\r\n\r\n\r\n\r\nmaster",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/grant_test.go",
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

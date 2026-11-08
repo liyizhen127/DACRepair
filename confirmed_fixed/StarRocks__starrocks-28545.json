@@ -1,0 +1,27 @@
+{
+  "repo": "StarRocks/starrocks",
+  "instance_id": "StarRocks__starrocks-28545",
+  "base_commit": "84677593a58a1ae7103053b2d6a5ae29a40407ca",
+  "patch": "diff --git a/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessControl.java b/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessControl.java\nindex ae547fb4855cec..8257395c7c18e6 100644\n--- a/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessControl.java\n+++ b/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessControl.java\n@@ -142,7 +142,7 @@ public void checkAnyActionOnMaterializedView(UserIdentity currentUser, Set<Long>\n \n     @Override\n     public void checkAnyActionOnAnyMaterializedView(UserIdentity currentUser, Set<Long> roleIds, String db) {\n-        checkAnyActionOnView(currentUser, roleIds, new TableName(db, \"*\"));\n+        checkAnyActionOnMaterializedView(currentUser, roleIds, new TableName(db, \"*\"));\n     }\n \n     @Override\n",
+  "test_patch": "diff --git a/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java b/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\nindex 24b9e8d16ad117..78672f3a2b26a8 100644\n--- a/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\n+++ b/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\n@@ -1573,6 +1573,22 @@ public void testGrantView() throws Exception {\n                 new TableName(\"db\", \"view1\"), PrivilegeType.ALTER);\n     }\n \n+    @Test\n+    public void testGrantMaterializedView() throws Exception {\n+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser(\n+                \"create user mv_user\", ctx), ctx);\n+        DDLStmtExecutor.execute(UtFrameUtils.parseStmtWithNewParser(\n+                \"grant select on materialized view db3.mv1 to mv_user\", ctx), ctx);\n+        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp(\"mv_user\", \"%\");\n+        setCurrentUserAndRoles(ctx, user);\n+        new NativeAccessControl().checkMaterializedViewAction(ctx.getCurrentUserIdentity(), ctx.getCurrentRoleIds(),\n+                new TableName(\"db3\", \"mv1\"), PrivilegeType.SELECT);\n+        new NativeAccessControl().checkAnyActionOnMaterializedView(ctx.getCurrentUserIdentity(), ctx.getCurrentRoleIds(),\n+                new TableName(\"db3\", \"mv1\"));\n+        new NativeAccessControl().checkAnyActionOnAnyMaterializedView(ctx.getCurrentUserIdentity(), ctx.getCurrentRoleIds(),\n+                \"db3\");\n+    }\n+\n     @Test\n     public void testGrantBrief() throws Exception {\n         ctx.setDatabase(\"db\");\n",
+  "problem_statement": "[BugFix] Fix bug the user has the query permission of mv, but cannot use database\n\nFixes #issue\r\n\r\n## What type of PR is this:\r\n- [x] BugFix\r\n- [ ] Feature\r\n- [ ] Enhancement\r\n- [ ] Refactor\r\n- [ ] UT\r\n- [ ] Doc\r\n- [ ] Tool",
+  "environment_spec": {
+    "engine": "starrocks",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

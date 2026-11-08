@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-13896",
+  "base_commit": "73ab6d818914aee7004f8375460ec0dca454e937",
+  "patch": "diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go\nindex 650361cd67ffe..3188720f40c75 100644\n--- a/planner/core/planbuilder.go\n+++ b/planner/core/planbuilder.go\n@@ -1620,12 +1620,13 @@ func (b *PlanBuilder) buildSimple(node ast.StmtNode) (Plan, error) {\n \t\t}\n \t\tb.visitInfo = collectVisitInfoFromGrantStmt(b.ctx, b.visitInfo, raw)\n \tcase *ast.GrantRoleStmt:\n-\t\terr := ErrSpecificAccessDenied.GenWithStackByArgs(\"GRANT ROLE\")\n-\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.GrantPriv, \"\", \"\", \"\", err)\n+\t\terr := ErrSpecificAccessDenied.GenWithStackByArgs(\"SUPER\")\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SuperPriv, \"\", \"\", \"\", err)\n \tcase *ast.RevokeStmt:\n \t\tb.visitInfo = collectVisitInfoFromRevokeStmt(b.ctx, b.visitInfo, raw)\n \tcase *ast.RevokeRoleStmt:\n-\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SuperPriv, \"\", \"\", \"\", nil)\n+\t\terr := ErrSpecificAccessDenied.GenWithStackByArgs(\"SUPER\")\n+\t\tb.visitInfo = appendVisitInfo(b.visitInfo, mysql.SuperPriv, \"\", \"\", \"\", err)\n \tcase *ast.KillStmt:\n \t\t// If you have the SUPER privilege, you can kill all threads and statements.\n \t\t// Otherwise, you can kill only your own threads and statements.\n",
+  "test_patch": "diff --git a/executor/simple_test.go b/executor/simple_test.go\nindex f237c494b6284..1fe1fbba14d80 100644\n--- a/executor/simple_test.go\n+++ b/executor/simple_test.go\n@@ -188,6 +188,31 @@ func (s *testSuite3) TestRole(c *C) {\n \ttk.MustExec(\"SET ROLE NONE\")\n }\n \n+func (s *testSuite3) TestRoleAdmin(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ttk.MustExec(\"CREATE USER 'testRoleAdmin';\")\n+\ttk.MustExec(\"CREATE ROLE 'targetRole';\")\n+\n+\t// Create a new session.\n+\tse, err := session.CreateSession4Test(s.store)\n+\tc.Check(err, IsNil)\n+\tdefer se.Close()\n+\tc.Assert(se.Auth(&auth.UserIdentity{Username: \"testRoleAdmin\", Hostname: \"localhost\"}, nil, nil), IsTrue)\n+\n+\tctx := context.Background()\n+\t_, err = se.Execute(ctx, \"GRANT `targetRole` TO `testRoleAdmin`;\")\n+\tc.Assert(err, NotNil)\n+\n+\ttk.MustExec(\"GRANT SUPER ON *.* TO `testRoleAdmin`;\")\n+\t_, err = se.Execute(ctx, \"GRANT `targetRole` TO `testRoleAdmin`;\")\n+\tc.Assert(err, IsNil)\n+\t_, err = se.Execute(ctx, \"REVOKE `targetRole` FROM `testRoleAdmin`;\")\n+\tc.Assert(err, IsNil)\n+\n+\ttk.MustExec(\"DROP USER 'testRoleAdmin';\")\n+\ttk.MustExec(\"DROP ROLE 'targetRole';\")\n+}\n+\n func (s *testSuite3) TestDefaultRole(c *C) {\n \ttk := testkit.NewTestKit(c, s.store)\n \n",
+  "problem_statement": "privilege: fix privilege check of `GRANT ROLE`\n\nIn MySQL, `GRANT roles TO users` require `ROLE_ADMIN` or `SUPER` privilege, But TiDB use `GrantPriv` to check `GRANT ROLE`.\r\n\r\n### What is changed and how it works?\r\nfix this bug and add test.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/simple_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

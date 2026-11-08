@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-3deffd35fe6c",
+  "base_commit": "fba9f57dccceb6dfa87f57058d15471fe622357c",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex d27e36bc9b11..cdfb00ad4ee7 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -3894,6 +3894,10 @@ int mysql_execute_command(THD *thd, bool first_level) {\n         }\n       }\n       if (first_table) {\n+        if (lex->dynamic_privileges.elements > 0) {\n+          my_error(ER_ILLEGAL_PRIVILEGE_LEVEL, MYF(0), all_tables->table_name);\n+          goto error;\n+        }\n         if (lex->type == TYPE_ENUM_PROCEDURE ||\n             lex->type == TYPE_ENUM_FUNCTION) {\n           uint grants = lex->all_privileges\n@@ -3911,11 +3915,6 @@ int mysql_execute_command(THD *thd, bool first_level) {\n           if (check_grant(thd, (lex->grant | lex->grant_tot_col | GRANT_ACL),\n                           all_tables, false, UINT_MAX, false))\n             goto error;\n-          if (lex->dynamic_privileges.elements > 0) {\n-            my_error(ER_ILLEGAL_PRIVILEGE_LEVEL, MYF(0),\n-                     all_tables->table_name);\n-            goto error;\n-          }\n           /* Conditionally writes to binlog */\n           res =\n               mysql_table_grant(thd, all_tables, lex->users_list, lex->columns,\n",
+  "test_patch": "diff --git a/mysql-test/r/grant_dynamic_bugs.result b/mysql-test/r/grant_dynamic_bugs.result\nnew file mode 100644\nindex 000000000000..f2c90778065f\n--- /dev/null\n+++ b/mysql-test/r/grant_dynamic_bugs.result\n@@ -0,0 +1,12 @@\n+#\n+# Bug #30628160: DYNAMIC PRIVILEGES CAN BE GRANTED AT PROCEDURE/FUNCTION LEVEL\n+#\n+CREATE SCHEMA B30628160;\n+CREATE PROCEDURE B30628160.p1() SELECT 1;\n+CREATE USER B30628160@localhost;\n+# The test: must fail.\n+GRANT xyzzy ON PROCEDURE B30628160.p1 TO B30628160@localhost;\n+ERROR HY000: Illegal privilege level specified for p1\n+DROP USER B30628160@localhost;\n+DROP SCHEMA B30628160;\n+# End of 8.0 tests\ndiff --git a/mysql-test/t/grant_dynamic_bugs.test b/mysql-test/t/grant_dynamic_bugs.test\nnew file mode 100644\nindex 000000000000..74b28163fb64\n--- /dev/null\n+++ b/mysql-test/t/grant_dynamic_bugs.test\n@@ -0,0 +1,15 @@\n+--echo #\n+--echo # Bug #30628160: DYNAMIC PRIVILEGES CAN BE GRANTED AT PROCEDURE/FUNCTION LEVEL\n+--echo #\n+\n+CREATE SCHEMA B30628160;\n+CREATE PROCEDURE B30628160.p1() SELECT 1;\n+CREATE USER B30628160@localhost;\n+--echo # The test: must fail.\n+--error ER_ILLEGAL_PRIVILEGE_LEVEL\n+GRANT xyzzy ON PROCEDURE B30628160.p1 TO B30628160@localhost;\n+\n+DROP USER B30628160@localhost;\n+DROP SCHEMA B30628160;\n+\n+--echo # End of 8.0 tests\n",
+  "problem_statement": "Bug #30628160: DYNAMIC PRIVILEGES CAN BE GRANTED AT PROCEDURE/FUNCTION LEVEL\nRB#24036\n\nThe list of dynamic privileges wasn't checked when processing procedure\nof function grants.\nThis resulted in them silently being ignored for GRANT ... ON PROCEDURE\n... statements.\n\nFixed by moving the check for non-empty dynamic privileges so it covers\nthe procedures/functions too.\n\nTest case added.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant_dynamic_bugs.result",
+      "mysql-test/t/grant_dynamic_bugs.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

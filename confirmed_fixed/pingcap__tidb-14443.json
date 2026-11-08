@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-14443",
+  "base_commit": "e03fa5b5d9b7405a5141321cf9884f9f16ec2497",
+  "patch": "diff --git a/executor/show.go b/executor/show.go\nindex 70e75421add10..092c73b9082aa 100644\n--- a/executor/show.go\n+++ b/executor/show.go\n@@ -196,6 +196,38 @@ func (e *ShowExec) fetchAll(ctx context.Context) error {\n \treturn nil\n }\n \n+// visibleChecker checks if a stmt is visible for a certain user.\n+type visibleChecker struct {\n+\tdefaultDB string\n+\tctx       sessionctx.Context\n+\tis        infoschema.InfoSchema\n+\tmanager   privilege.Manager\n+\tok        bool\n+}\n+\n+func (v *visibleChecker) Enter(in ast.Node) (out ast.Node, skipChildren bool) {\n+\tswitch x := in.(type) {\n+\tcase *ast.TableName:\n+\t\tschema := x.Schema.L\n+\t\tif schema == \"\" {\n+\t\t\tschema = v.defaultDB\n+\t\t}\n+\t\tif !v.is.TableExists(model.NewCIStr(schema), x.Name) {\n+\t\t\treturn in, true\n+\t\t}\n+\t\tactiveRoles := v.ctx.GetSessionVars().ActiveRoles\n+\t\tif v.manager != nil && !v.manager.RequestVerification(activeRoles, schema, x.Name.L, \"\", mysql.SelectPriv) {\n+\t\t\tv.ok = false\n+\t\t}\n+\t\treturn in, true\n+\t}\n+\treturn in, false\n+}\n+\n+func (v *visibleChecker) Leave(in ast.Node) (out ast.Node, ok bool) {\n+\treturn in, true\n+}\n+\n func (e *ShowExec) fetchShowBind() error {\n \tvar bindRecords []*bindinfo.BindRecord\n \tif !e.GlobalScope {\n@@ -204,8 +236,24 @@ func (e *ShowExec) fetchShowBind() error {\n \t} else {\n \t\tbindRecords = domain.GetDomain(e.ctx).BindHandle().GetAllBindRecord()\n \t}\n+\tparser := parser.New()\n \tfor _, bindData := range bindRecords {\n \t\tfor _, hint := range bindData.Bindings {\n+\t\t\tstmt, err := parser.ParseOneStmt(hint.BindSQL, hint.Charset, hint.Collation)\n+\t\t\tif err != nil {\n+\t\t\t\treturn err\n+\t\t\t}\n+\t\t\tchecker := visibleChecker{\n+\t\t\t\tdefaultDB: bindData.Db,\n+\t\t\t\tctx:       e.ctx,\n+\t\t\t\tis:        e.is,\n+\t\t\t\tmanager:   privilege.GetPrivilegeManager(e.ctx),\n+\t\t\t\tok:        true,\n+\t\t\t}\n+\t\t\tstmt.Accept(&checker)\n+\t\t\tif !checker.ok {\n+\t\t\t\tcontinue\n+\t\t\t}\n \t\t\te.appendRow([]interface{}{\n \t\t\t\tbindData.OriginalSQL,\n \t\t\t\thint.BindSQL,\n",
+  "test_patch": "diff --git a/bindinfo/bind_test.go b/bindinfo/bind_test.go\nindex d12e3a0883f43..de0988abf9ab0 100644\n--- a/bindinfo/bind_test.go\n+++ b/bindinfo/bind_test.go\n@@ -691,3 +691,19 @@ func (s *testSuite) TestOutdatedInfoSchema(c *C) {\n \ttk.MustExec(\"truncate table mysql.bind_info\")\n \ttk.MustExec(\"create global binding for select * from t using select * from t use index(idx)\")\n }\n+\n+func (s *testSuite) TestPrivileges(c *C) {\n+\ttk := testkit.NewTestKit(c, s.store)\n+\ts.cleanBindingEnv(tk)\n+\ttk.MustExec(\"use test\")\n+\ttk.MustExec(\"drop table if exists t\")\n+\ttk.MustExec(\"create table t(a int, b int, index idx(a))\")\n+\ttk.MustExec(\"create global binding for select * from t using select * from t use index(idx)\")\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"root\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\trows := tk.MustQuery(\"show global bindings\").Rows()\n+\tc.Assert(len(rows), Equals, 1)\n+\ttk.MustExec(\"create user test@'%'\")\n+\tc.Assert(tk.Se.Auth(&auth.UserIdentity{Username: \"test\", Hostname: \"%\"}, nil, nil), IsTrue)\n+\trows = tk.MustQuery(\"show global bindings\").Rows()\n+\tc.Assert(len(rows), Equals, 0)\n+}\n",
+  "problem_statement": "executor: add privilege check for show bindings\n\nAdd privilege check for show bindings.\r\n\r\n### What is changed and how it works?\r\n\r\nA binding will only be appended to result if the user has all tables' select priviledge in the sql.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "bindinfo/bind_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

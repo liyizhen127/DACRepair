@@ -1,0 +1,27 @@
+{
+  "repo": "StarRocks/starrocks",
+  "instance_id": "StarRocks__starrocks-48199",
+  "base_commit": "f17f645c33d7599f8c5ef076aa5c1f2d18aab98a",
+  "patch": "diff --git a/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessController.java b/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessController.java\nindex 34bb042fe866b9..f4059c5c01f57e 100644\n--- a/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessController.java\n+++ b/fe/fe-core/src/main/java/com/starrocks/privilege/NativeAccessController.java\n@@ -327,6 +327,9 @@ protected static void checkObjectTypeAction(UserIdentity userIdentity, Set<Long>\n     }\n \n     private static String getFullyQualifiedNameFromListAllowNull(List<String> objectTokens) {\n+        if (objectTokens == null) {\n+            return \"\";\n+        }\n         return objectTokens.stream()\n                 .map(e -> e == null ? \"null\" : e)\n                 .collect(Collectors.joining(\".\"));\n",
+  "test_patch": "diff --git a/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java b/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\nindex 3c611db23018ef..087b6aa338339d 100644\n--- a/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\n+++ b/fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java\n@@ -61,6 +61,8 @@\n import com.starrocks.sql.ast.UserIdentity;\n import com.starrocks.utframe.UtFrameUtils;\n import mockit.Expectations;\n+import mockit.Mock;\n+import mockit.MockUp;\n import mockit.Mocked;\n import org.junit.After;\n import org.junit.Assert;\n@@ -1906,4 +1908,19 @@ public void testShowGrants() throws Exception {\n             Assert.assertTrue(e.getMessage().contains(\"Access denied\"));\n         }\n     }\n+\n+    @Test(expected = AccessDeniedException.class)\n+    public void testSystemPrivExec() throws AccessDeniedException {\n+        new MockUp<AuthorizationMgr>() {\n+            @Mock\n+            protected PrivilegeCollectionV2 mergePrivilegeCollection(UserIdentity userIdentity, Set<Long> roleIds)\n+                    throws PrivilegeException {\n+                throw new PrivilegeException(\"\");\n+            }\n+        };\n+\n+        UserIdentity testUser = UserIdentity.createAnalyzedUserIdentWithIp(\"test_user\", \"%\");\n+        setCurrentUserAndRoles(ctx, testUser);\n+        Authorizer.checkSystemAction(ctx.getCurrentUserIdentity(), ctx.getCurrentRoleIds(), PrivilegeType.GRANT);\n+    }\n }\n",
+  "problem_statement": "[BugFix] Fix getFullyQualifiedNameFromListAllowNull NPE when check system privilege bug\n\n## Why I'm doing:\r\n\r\n## What I'm doing:\r\n\r\nFixes https://github.com/StarRocks/StarRocksTest/issues/8072\r\n## What type of PR is this:\r\n\r\n- [x] BugFix\r\n- [ ] Feature\r\n- [ ] Enhancement\r\n- [ ] Refactor\r\n- [ ] UT\r\n- [ ] Doc\r\n- [ ] Tool\r\n\r\nDoes this PR entail a change in behavior?\r\n\r\n- [ ] Yes, this PR will result in a change in behavior.\r\n- [x] No, this PR will not result in a change in behavior.\r\n\r\nIf yes, please specify the type of change:\r\n\r\n- [ ] Interface/UI changes: syntax, type conversion, expression evaluation, display information\r\n- [ ] Parameter changes: default values, similar parameters but with different default values\r\n- [ ] Policy changes: use new policy to replace old one, functionality automatically enabled\r\n- [ ] Feature removed\r\n- [ ] Miscellaneous: upgrade & downgrade compatibility, etc.",
+  "environment_spec": {
+    "engine": "starrocks",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "fe/fe-core/src/test/java/com/starrocks/privilege/AuthorizationMgrTest.java"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

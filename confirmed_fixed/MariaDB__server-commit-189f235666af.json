@@ -1,0 +1,28 @@
+{
+  "repo": "MariaDB/server",
+  "instance_id": "MariaDB__server-commit-189f235666af",
+  "base_commit": "c8163a16fa4891e2eb8284d36d9a34a7761947b0",
+  "patch": "diff --git a/sql/sql_acl.cc b/sql/sql_acl.cc\nindex f4d217c85ff48..06a67edda36ce 100644\n--- a/sql/sql_acl.cc\n+++ b/sql/sql_acl.cc\n@@ -1881,17 +1881,17 @@ bool change_password(THD *thd, const char *host, const char *user,\n     goto end;\n   }\n \n+  /* update loaded acl entry: */\n+  set_user_salt(acl_user, new_password, new_password_len);\n+\n   if (my_strcasecmp(system_charset_info, acl_user->plugin.str,\n                     native_password_plugin_name.str) &&\n       my_strcasecmp(system_charset_info, acl_user->plugin.str,\n                     old_password_plugin_name.str))\n-  {\n     push_warning(thd, MYSQL_ERROR::WARN_LEVEL_NOTE,\n                  ER_SET_PASSWORD_AUTH_PLUGIN, ER(ER_SET_PASSWORD_AUTH_PLUGIN));\n-  }\n-  /* update loaded acl entry: */\n-  set_user_salt(acl_user, new_password, new_password_len);\n-  set_user_plugin(acl_user, new_password_len);\n+  else\n+    set_user_plugin(acl_user, new_password_len);\n \n   if (update_user_table(thd, table,\n \t\t\tacl_user->host.hostname ? acl_user->host.hostname : \"\",\n",
+  "test_patch": "diff --git a/mysql-test/r/plugin_auth.result b/mysql-test/r/plugin_auth.result\nindex 327ba2969e993..64bc870a7fa80 100644\n--- a/mysql-test/r/plugin_auth.result\n+++ b/mysql-test/r/plugin_auth.result\n@@ -44,7 +44,7 @@ ERROR 28000: Access denied for user 'plug'@'localhost' (using password: YES)\n ## test correct default plugin\n select USER(),CURRENT_USER();\n USER()\tCURRENT_USER()\n-plug@localhost\tplug@%\n+plug@localhost\tplug_dest@%\n ## test no_auto_create_user sql mode with plugin users\n SET @@sql_mode=no_auto_create_user;\n GRANT INSERT ON TEST.* TO grant_user IDENTIFIED WITH 'test_plugin_server';\n@@ -462,4 +462,24 @@ CREATE USER bug12610784@localhost;\n SET PASSWORD FOR bug12610784@localhost = PASSWORD('secret');\n ERROR 28000: Access denied for user 'bug12610784'@'localhost' (using password: NO)\n DROP USER bug12610784@localhost;\n+#\n+# Bug #12818542: PAM: ADDING PASSWORD FOR AN ACCOUNT DISABLES PAM \n+#   AUTHENTICATION SETTINGS\n+#\n+CREATE USER bug12818542@localhost \n+IDENTIFIED WITH 'test_plugin_server' AS 'bug12818542_dest';\n+CREATE USER bug12818542_dest@localhost \n+IDENTIFIED BY 'bug12818542_dest_passwd';\n+GRANT PROXY ON bug12818542_dest@localhost TO bug12818542@localhost;\n+SELECT USER(),CURRENT_USER();\n+USER()\tCURRENT_USER()\n+bug12818542@localhost\tbug12818542_dest@localhost\n+SET PASSWORD = PASSWORD('bruhaha');\n+Warnings:\n+Note\t1699\tSET PASSWORD has no significance for users authenticating via plugins\n+SELECT USER(),CURRENT_USER();\n+USER()\tCURRENT_USER()\n+bug12818542@localhost\tbug12818542_dest@localhost\n+DROP USER bug12818542@localhost;\n+DROP USER bug12818542_dest@localhost;\n End of 5.5 tests\ndiff --git a/mysql-test/t/plugin_auth.test b/mysql-test/t/plugin_auth.test\nindex 0dc3068de617f..f169360cf2e71 100644\n--- a/mysql-test/t/plugin_auth.test\n+++ b/mysql-test/t/plugin_auth.test\n@@ -540,4 +540,35 @@ connection default;\n disconnect b12610784;\n DROP USER bug12610784@localhost;\n \n+\n+--echo #\n+--echo # Bug #12818542: PAM: ADDING PASSWORD FOR AN ACCOUNT DISABLES PAM \n+--echo #   AUTHENTICATION SETTINGS\n+--echo #\n+\n+CREATE USER bug12818542@localhost \n+  IDENTIFIED WITH 'test_plugin_server' AS 'bug12818542_dest';\n+CREATE USER bug12818542_dest@localhost \n+  IDENTIFIED BY 'bug12818542_dest_passwd';\n+GRANT PROXY ON bug12818542_dest@localhost TO bug12818542@localhost;\n+\n+connect(bug12818542_con,localhost,bug12818542,bug12818542_dest);\n+connection bug12818542_con;\n+SELECT USER(),CURRENT_USER();\n+\n+SET PASSWORD = PASSWORD('bruhaha');\n+\n+connection default;\n+disconnect bug12818542_con;\n+\n+connect(bug12818542_con2,localhost,bug12818542,bug12818542_dest);\n+connection bug12818542_con2;\n+SELECT USER(),CURRENT_USER();\n+\n+connection default;\n+disconnect bug12818542_con2;\n+\n+DROP USER bug12818542@localhost;\n+DROP USER bug12818542_dest@localhost;\n+\n --echo End of 5.5 tests\n",
+  "problem_statement": "re-commit of bug #12818542: PAM: ADDING PASSWORD FOR AN ACCOUNT DISABLES \n  PAM AUTHENTICATION SETTINGS\nto the release clone.",
+  "environment_spec": {
+    "engine": "mariadb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/plugin_auth.result",
+      "mysql-test/t/plugin_auth.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

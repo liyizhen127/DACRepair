@@ -1,0 +1,27 @@
+{
+  "repo": "duckdb/duckdb",
+  "instance_id": "duckdb__duckdb-17548",
+  "base_commit": "120a8f3f451a0f7005579fa3a974c13f91099f1c",
+  "patch": "diff --git a/src/main/settings/custom_settings.cpp b/src/main/settings/custom_settings.cpp\nindex faf82193a874..2f3d90b8fa46 100644\n--- a/src/main/settings/custom_settings.cpp\n+++ b/src/main/settings/custom_settings.cpp\n@@ -196,6 +196,9 @@ void AllowedDirectoriesSetting::SetGlobal(DatabaseInstance *db, DBConfig &config\n \tif (!config.options.enable_external_access) {\n \t\tthrow InvalidInputException(\"Cannot change allowed_directories when enable_external_access is disabled\");\n \t}\n+\tif (!config.file_system) {\n+\t\tthrow InvalidInputException(\"Cannot change/set allowed_directories before the database is started\");\n+\t}\n \tconfig.options.allowed_directories.clear();\n \tauto &list = ListValue::GetChildren(input);\n \tfor (auto &val : list) {\n@@ -226,6 +229,10 @@ void AllowedPathsSetting::SetGlobal(DatabaseInstance *db, DBConfig &config, cons\n \tif (!config.options.enable_external_access) {\n \t\tthrow InvalidInputException(\"Cannot change allowed_paths when enable_external_access is disabled\");\n \t}\n+\tif (!config.file_system) {\n+\t\tthrow InvalidInputException(\"Cannot change/set allowed_paths before the database is started\");\n+\t}\n+\n \tconfig.options.allowed_paths.clear();\n \tauto &list = ListValue::GetChildren(input);\n \tfor (auto &val : list) {\n",
+  "test_patch": "diff --git a/test/api/test_config.cpp b/test/api/test_config.cpp\nindex 732fc6889bd0..61342ac952a0 100644\n--- a/test/api/test_config.cpp\n+++ b/test/api/test_config.cpp\n@@ -38,6 +38,29 @@ TEST_CASE(\"Test DB config configuration\", \"[api]\") {\n \t}\n }\n \n+TEST_CASE(\"Test allowed options\", \"[api]\") {\n+\tcase_insensitive_map_t<Value> config_dict;\n+\tstring option;\n+\n+\tSECTION(\"allowed_directories\") {\n+\t\tconfig_dict.emplace(\"allowed_directories\", Value::LIST({Value(\"test\")}));\n+\t\toption = \"allowed_directories\";\n+\t}\n+\tSECTION(\"allowed_paths\") {\n+\t\tconfig_dict.emplace(\"allowed_paths\", Value::LIST({Value(\"test\")}));\n+\t\toption = \"allowed_paths\";\n+\t}\n+\n+\ttry {\n+\t\tDBConfig config(config_dict, false);\n+\t} catch (std::exception &ex) {\n+\t\tErrorData error_data(ex);\n+\t\tREQUIRE(error_data.Type() == ExceptionType::INVALID_INPUT);\n+\t\tREQUIRE(error_data.RawMessage() ==\n+\t\t        StringUtil::Format(\"Cannot change/set %s before the database is started\", option));\n+\t}\n+}\n+\n TEST_CASE(\"Test user_agent\", \"[api]\") {\n \t{\n \t\t// Default duckdb_api is cpp\n",
+  "problem_statement": "Error with allowed_directories configuration\n\n### What happens?\n\nallowed_directories configuration is not working with python api and is throwing the following error. Code to reproduce is also included.\n\n```\n---------------------------------------------------------------------------\nInternalException                         Traceback (most recent call last)\nCell In[1], line 7\n      5 if not os.path.exists(new_dir):\n      6     os.makedirs(new_dir)\n----> 7 con = duckdb.connect(config = {'allowed_directories':[new_dir]})\n\nInternalException: INTERNAL Error: Attempted to dereference unique_ptr that is NULL!\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\n\n### To Reproduce\n\n```python\nimport duckdb\nimport os\n# Ensure the directory exists\nnew_dir = os.path.join(os.getcwd(), \"newfolder\")\nif not os.path.exists(new_dir):\n    os.makedirs(new_dir)\ncon = duckdb.connect(config = {'allowed_directories':[new_dir]})\n```\n\n### OS:\n\nWindows 11 x64-based PC\n\n### DuckDB Version:\n\n1.2.2\n\n### DuckDB Client:\n\nPython\n\n### Hardware:\n\n_No response_\n\n### Full Name:\n\nAshok Guntu\n\n### Affiliation:\n\nWater Resources Dept - Government Organization\n\n### What is the latest build you tested with? If possible, we recommend testing with the latest nightly build.\n\nI have not tested with any build\n\n### Did you include all relevant data sets for reproducing the issue?\n\nNot applicable - the reproduction does not require a data set\n\n### Did you include all code required to reproduce the issue?\n\n- [x] Yes, I have\n\n### Did you include all relevant configuration (e.g., CPU architecture, Python version, Linux distribution) to reproduce the issue?\n\n- [x] Yes, I have",
+  "environment_spec": {
+    "engine": "duckdb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "test/api/test_config.cpp"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

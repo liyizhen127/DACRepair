@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-cc83bb1f414a",
+  "base_commit": "cce204473778b1ce6a93140039ce42f52d89b7e6",
+  "patch": "diff --git a/sql/parse_tree_helpers.cc b/sql/parse_tree_helpers.cc\nindex 3450896dcb53..4901b4d61f60 100644\n--- a/sql/parse_tree_helpers.cc\n+++ b/sql/parse_tree_helpers.cc\n@@ -456,7 +456,7 @@ bool apply_privileges(THD *thd,\n   for (PT_role_or_privilege *p : privs)\n   {\n     Privilege *privilege= p->get_privilege(thd);\n-    if (p == NULL)\n+    if (privilege == NULL)\n       return true;\n \n     if (privilege->type == Privilege::DYNAMIC)\ndiff --git a/sql/parse_tree_nodes.h b/sql/parse_tree_nodes.h\nindex f7192913789c..ecddeedc5ab6 100644\n--- a/sql/parse_tree_nodes.h\n+++ b/sql/parse_tree_nodes.h\n@@ -3445,12 +3445,12 @@ class PT_role_or_privilege : public Parse_tree_node\n \n   virtual st_lex_user *get_user(THD *thd)\n   {\n-    thd->syntax_error_at(pos, \"role or user name with the ON clause\");\n+    thd->syntax_error_at(pos, \"Illegal authorization identifier\");\n     return NULL;\n   }\n   virtual Privilege *get_privilege(THD *thd)\n   {\n-    thd->syntax_error_at(pos, \"privilege name without the ON clause\");\n+    thd->syntax_error_at(pos, \"Illegal privilege identifier\");\n     return NULL;\n   }\n };\n",
+  "test_patch": "diff --git a/mysql-test/r/grant_dynamic.result b/mysql-test/r/grant_dynamic.result\nindex b5d3ab7a8bd5..014ea6a5b731 100644\n--- a/mysql-test/r/grant_dynamic.result\n+++ b/mysql-test/r/grant_dynamic.result\n@@ -659,6 +659,19 @@ START SLAVE;\n ERROR HY000: The server is not configured as slave; fix in config file or with CHANGE MASTER TO\n START SLAVE;\n ERROR HY000: The server is not configured as slave; fix in config file or with CHANGE MASTER TO\n+#\n+# Bad privilege- or auth identifiers shouldn't crash the server\n+#\n+REVOKE 'C' @c06 ON c02.`z1` FROM 'C' @c03;\n+ERROR 42000: Illegal privilege identifier near ''C' @c06 ON c02.`z1` FROM 'C' @c03' at line 1\n+GRANT '' @c05 ON TABLE *.* TO ''@'' IDENTIFIED WITH c06 BY '' REQUIRE X509;\n+ERROR 42000: Illegal privilege identifier near ''' @c05 ON TABLE *.* TO ''@'' IDENTIFIED WITH c06 BY '' REQUIRE X509' at line 1\n+GRANT '' @c05 ON TABLE * TO CURRENT_USER()IDENTIFIED WITH c07 REQUIRE X509 WITH  MAX_QUERIES_PER_HOUR 0x2e3;\n+ERROR 42000: Illegal privilege identifier near ''' @c05 ON TABLE * TO CURRENT_USER()IDENTIFIED WITH c07 REQUIRE X509 WITH  MAX_Q' at line 1\n+GRANT WRAPPER @c04 ON FUNCTION c02.* TO CURRENT_USER IDENTIFIED WITH '' BY '?'  REQUIRE SSL;\n+ERROR 42000: Illegal privilege identifier near 'WRAPPER @c04 ON FUNCTION c02.* TO CURRENT_USER IDENTIFIED WITH '' BY '?'  REQUIR' at line 1\n+GRANT '' @c03 ON c05.* TO '' @ '';\n+ERROR 42000: Illegal privilege identifier near ''' @c03 ON c05.* TO '' @ ''' at line 1\n # Cleanup\n DROP USER u1@localhost, u1, r2;\n DROP TABLE test.t1;\ndiff --git a/mysql-test/t/grant_dynamic.test b/mysql-test/t/grant_dynamic.test\nindex e22cf815e4eb..550b5d411886 100644\n--- a/mysql-test/t/grant_dynamic.test\n+++ b/mysql-test/t/grant_dynamic.test\n@@ -430,6 +430,21 @@ START SLAVE;\n --error 1200\n START SLAVE;\n DISCONNECT con_rep_slave_test;\n+--echo #\n+--echo # Bad privilege- or auth identifiers shouldn't crash the server\n+--echo #\n+CONNECTION default;\n+--error ER_PARSE_ERROR\n+REVOKE 'C' @c06 ON c02.`z1` FROM 'C' @c03;\n+--error ER_PARSE_ERROR\n+GRANT '' @c05 ON TABLE *.* TO ''@'' IDENTIFIED WITH c06 BY '' REQUIRE X509;\n+--error ER_PARSE_ERROR\n+GRANT '' @c05 ON TABLE * TO CURRENT_USER()IDENTIFIED WITH c07 REQUIRE X509 WITH  MAX_QUERIES_PER_HOUR 0x2e3;\n+--error ER_PARSE_ERROR\n+GRANT WRAPPER @c04 ON FUNCTION c02.* TO CURRENT_USER IDENTIFIED WITH '' BY '?'  REQUIRE SSL;\n+--error ER_PARSE_ERROR\n+GRANT '' @c03 ON c05.* TO '' @ '';\n+\n --echo # Cleanup\n CONNECTION default;\n DROP USER u1@localhost, u1, r2;\n",
+  "problem_statement": "Bug#25914845 FUNNY GRANT/REVOKE SYNTAX CRASHES IN APPLY_PRIVILEGES\n\nEmpty or missing privilege identifiers which looked like\nauthorization identifiers could crash the server when used in a\nGRANT or REVOKE statement.\n\nThe issue stemmed from a typo in custom parser code which enabled\ndynamic privileges.",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/grant_dynamic.result",
+      "mysql-test/t/grant_dynamic.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

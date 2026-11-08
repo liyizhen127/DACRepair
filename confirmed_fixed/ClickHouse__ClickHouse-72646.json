@@ -1,0 +1,27 @@
+{
+  "repo": "ClickHouse/ClickHouse",
+  "instance_id": "ClickHouse__ClickHouse-72646",
+  "base_commit": "2b94eab6fb2cbe33a1034e3d95b9f11f5947ff95",
+  "patch": "diff --git a/src/Access/Common/AccessRightsElement.cpp b/src/Access/Common/AccessRightsElement.cpp\nindex 1246992f9b65c..7ef434d22f949 100644\n--- a/src/Access/Common/AccessRightsElement.cpp\n+++ b/src/Access/Common/AccessRightsElement.cpp\n@@ -237,7 +237,14 @@ void AccessRightsElement::throwIfNotGrantable() const\n         return;\n     auto grantable_flags = getGrantableFlags();\n     if (grantable_flags)\n+    {\n+        if (!anyColumn() && (anyTable() || anyDatabase()))\n+        {\n+            // Specifying specific columns with a wildcard for a database/table is grammatically valid, but not logically valid\n+            throw Exception(ErrorCodes::INVALID_GRANT, \"{} on wildcards cannot be granted on the column level\", access_flags.toString());\n+        }\n         return;\n+    }\n \n     if (!anyColumn())\n         throw Exception(ErrorCodes::INVALID_GRANT, \"{} cannot be granted on the column level\", access_flags.toString());\n",
+  "test_patch": "diff --git a/tests/queries/0_stateless/01073_grant_and_revoke.sql b/tests/queries/0_stateless/01073_grant_and_revoke.sql\nindex 59f599ce14074..2ae9ed92c150d 100644\n--- a/tests/queries/0_stateless/01073_grant_and_revoke.sql\n+++ b/tests/queries/0_stateless/01073_grant_and_revoke.sql\n@@ -17,6 +17,9 @@ GRANT SELECT(col1) ON db3.table TO test_user_01073;\n GRANT SELECT(col1, col2) ON db4.table TO test_user_01073;\n GRANT INSERT ON *.* TO test_user_01073;\n GRANT DELETE ON *.* TO test_user_01073;\n+GRANT SELECT(col1) ON *.* TO test_user_01073; -- { clientError 509 }\n+GRANT SELECT(col1) ON db1.* TO test_user_01073; -- { clientError 509 }\n+GRANT INSERT(col1, col2) ON db1.* TO test_user_01073; -- { clientError 509 }\n SHOW GRANTS FOR test_user_01073;\n \n SELECT 'D';\n",
+  "problem_statement": "Column-level GRANT SELECT/INSERT silently ignores columns with wildcard tables/databases\n\n**Describe the unexpected behaviour**\r\nRunning GRANT statements such as:\r\n\r\n```sql\r\nGRANT SELECT(x), INSERT(x) ON default.* TO user1\r\n```\r\n\r\nsilently omits the column qualifiers when applying the grant, resulting in:\r\n\r\n```sql\r\nSHOW GRANTS FOR user1;\r\n-- GRANT SELECT, INSERT ON default.* TO user1\r\n```\r\n\r\nLogging in as `user1` and trying to SELECT on more than just the column `x` confirms that excess permissions were granted.\r\n\r\n**How to reproduce**\r\nClickHouse server version: tested on 24.11.1.2557 and 24.8.8.17, though I'm pretty sure this is in older versions as well.\r\n\r\nRepro steps:\r\n```sql\r\nCREATE TABLE test (x Int32, y Int32) ENGINE MergeTree ORDER BY i;\r\nINSERT INTO test VALUES (1, 2);\r\n\r\nCREATE USER user1;\r\nGRANT SELECT(x), INSERT(x) ON default.* TO user1;\r\nSHOW GRANTS FOR user1;\r\n-- GRANT SELECT, INSERT ON default.* TO user1\r\n\r\n-- As user1\r\nSELECT y FROM test;\r\n-- 2\r\n```\r\n\r\n**Expected behavior**\r\nI would expect one of two behaviors:\r\n1. The column-level grant works as the syntax would suggest, where user1 can only SELECT and INSERT on the column `x` for all tables that match the wildcard. (Though from what I can tell, this doesn't seem straightforward to implement with the current code)\r\n2. ClickHouse throws an `INVALID_GRANT` error.\r\n\r\n**Additional context**\r\nI think this only applies to GRANT SELECT and GRANT INSERT, since these are the only two grants that can be applied at column level that also take column parameters.\r\n\r\nI guess it's sort of weird to want this kind of grant in the first place. My use case involves various dynamically created tables in the same database that all share a subset of common columns. It's easy enough to work around this by issuing separate grants for each table, but the fact that ClickHouse still accepts the query seems unexpected.",
+  "environment_spec": {
+    "engine": "clickhouse",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "tests/queries/0_stateless/01073_grant_and_revoke.sql"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

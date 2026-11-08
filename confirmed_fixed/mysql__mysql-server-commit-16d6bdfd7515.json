@@ -1,0 +1,28 @@
+{
+  "repo": "mysql/mysql-server",
+  "instance_id": "mysql__mysql-server-commit-16d6bdfd7515",
+  "base_commit": "2479dc71c402f084c9684b48657b583cd2670cf8",
+  "patch": "diff --git a/sql/sql_parse.cc b/sql/sql_parse.cc\nindex 35089bbb2514..3ca0c78d96ae 100644\n--- a/sql/sql_parse.cc\n+++ b/sql/sql_parse.cc\n@@ -5261,7 +5261,8 @@ check_access(THD *thd, ulong want_access, const char *db, ulong *save_priv,\n \n   if (schema_db)\n   {\n-    if (want_access & ~(SELECT_ACL | EXTRA_ACL))\n+    if (!(sctx->master_access & FILE_ACL) && (want_access & FILE_ACL) ||\n+        (want_access & ~(SELECT_ACL | EXTRA_ACL | FILE_ACL)))\n     {\n       if (!no_errors)\n       {\n",
+  "test_patch": "diff --git a/mysql-test/r/outfile.result b/mysql-test/r/outfile.result\nindex 023c4ea205f4..8503df545d2d 100644\nBinary files a/mysql-test/r/outfile.result and b/mysql-test/r/outfile.result differ\ndiff --git a/mysql-test/t/outfile.test b/mysql-test/t/outfile.test\nindex 7c90fd32909b..f285407efd43 100644\n--- a/mysql-test/t/outfile.test\n+++ b/mysql-test/t/outfile.test\n@@ -96,3 +96,38 @@ create table t1(a int);\n eval select * into outfile \"$MYSQL_TEST_DIR/outfile-test1\" from t1;\n drop table t1;\n \n+#\n+# Bug#28181 Access denied to 'information_schema when\n+# select into out file (regression)\n+#\n+create database mysqltest;\n+create user user_1@localhost;\n+grant all on mysqltest.* to user_1@localhost;\n+connect (con28181_1,localhost,user_1,,mysqltest);\n+\n+--error 1044\n+eval select schema_name\n+into outfile \"../tmp/outfile-test.4\"\n+fields terminated by ',' optionally enclosed by '\"'\n+ lines terminated by '\\n'\n+from information_schema.schemata\n+where schema_name like 'mysqltest';\n+\n+connection default;\n+grant file on *.* to user_1@localhost;\n+\n+connect (con28181_2,localhost,user_1,,mysqltest);\n+eval select schema_name\n+into outfile \"../tmp/outfile-test.4\"\n+fields terminated by ',' optionally enclosed by '\"'\n+ lines terminated by '\\n'\n+from information_schema.schemata\n+where schema_name like 'mysqltest';\n+\n+connection default;\n+--exec rm $MYSQLTEST_VARDIR/tmp/outfile-test.4\n+use test;\n+revoke all privileges on *.* from user_1@localhost;\n+drop user user_1@localhost;\n+drop database mysqltest;\n+\n",
+  "problem_statement": "Bug#28181 Access denied to 'information_schema when select into out file (regression)\nallow select into out file from I_S if user has FILE privilege\notherwise issue an error",
+  "environment_spec": {
+    "engine": "mysql",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "mysql-test/r/outfile.result",
+      "mysql-test/t/outfile.test"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

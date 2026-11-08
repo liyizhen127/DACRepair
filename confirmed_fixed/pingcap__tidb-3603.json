@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-3603",
+  "base_commit": "58270851476c940051d8e4fb6cf9434bdd58abee",
+  "patch": "diff --git a/executor/ddl.go b/executor/ddl.go\nindex b4fe96dd8488d..e1becd7408abe 100644\n--- a/executor/ddl.go\n+++ b/executor/ddl.go\n@@ -24,7 +24,6 @@ import (\n \t\"github.com/pingcap/tidb/infoschema\"\n \t\"github.com/pingcap/tidb/model\"\n \t\"github.com/pingcap/tidb/mysql\"\n-\t\"github.com/pingcap/tidb/privilege\"\n \t\"github.com/pingcap/tidb/sessionctx\"\n \t\"github.com/pingcap/tidb/sessionctx/variable\"\n \t\"github.com/pingcap/tidb/sessionctx/varsutil\"\n@@ -197,29 +196,20 @@ func (e *DDLExec) executeDropTable(s *ast.DropTableStmt) error {\n \tvar notExistTables []string\n \tfor _, tn := range s.Tables {\n \t\tfullti := ast.Ident{Schema: tn.Schema, Name: tn.Name}\n-\t\tschema, ok := e.is.SchemaByName(tn.Schema)\n+\t\t_, ok := e.is.SchemaByName(tn.Schema)\n \t\tif !ok {\n \t\t\t// TODO: we should return special error for table not exist, checking \"not exist\" is not enough,\n \t\t\t// because some other errors may contain this error string too.\n \t\t\tnotExistTables = append(notExistTables, fullti.String())\n \t\t\tcontinue\n \t\t}\n-\t\ttb, err := e.is.TableByName(tn.Schema, tn.Name)\n+\t\t_, err := e.is.TableByName(tn.Schema, tn.Name)\n \t\tif err != nil && infoschema.ErrTableNotExists.Equal(err) {\n \t\t\tnotExistTables = append(notExistTables, fullti.String())\n \t\t\tcontinue\n \t\t} else if err != nil {\n \t\t\treturn errors.Trace(err)\n \t\t}\n-\t\t// Check Privilege\n-\t\tprivChecker := privilege.GetPrivilegeChecker(e.ctx)\n-\t\thasPriv, err := privChecker.Check(e.ctx, schema, tb.Meta(), mysql.DropPriv)\n-\t\tif err != nil {\n-\t\t\treturn errors.Trace(err)\n-\t\t}\n-\t\tif !hasPriv {\n-\t\t\treturn errors.Errorf(\"You do not have the privilege to drop table %s.%s.\", tn.Schema, tn.Name)\n-\t\t}\n \n \t\terr = sessionctx.GetDomain(e.ctx).DDL().DropTable(e.ctx, fullti)\n \t\tif infoschema.ErrDatabaseNotExists.Equal(err) || infoschema.ErrTableNotExists.Equal(err) {\n",
+  "test_patch": "diff --git a/privilege/privileges/privileges_test.go b/privilege/privileges/privileges_test.go\nindex f66b5db8e3b87..b6b17d4b94eba 100644\n--- a/privilege/privileges/privileges_test.go\n+++ b/privilege/privileges/privileges_test.go\n@@ -53,7 +53,7 @@ type testPrivilegeSuite struct {\n \tcreateColumnPrivTableSQL string\n }\n \n-func (s *testPrivilegeSuite) SetUpSuit(c *C) {\n+func (s *testPrivilegeSuite) SetUpSuite(c *C) {\n \tprivileges.Enable = true\n \tlogLevel := os.Getenv(\"log_level\")\n \tlog.SetLevelByString(logLevel)\n@@ -246,23 +246,20 @@ func (s *testPrivilegeSuite) TestShowGrants(c *C) {\n func (s *testPrivilegeSuite) TestDropTablePriv(c *C) {\n \tdefer testleak.AfterTest(c)()\n \tse := newSession(c, s.store, s.dbName)\n-\tctx, _ := se.(context.Context)\n \tmustExec(c, se, `CREATE TABLE todrop(c int);`)\n-\tctx.GetSessionVars().User = \"root@localhost\"\n-\tmustExec(c, se, `CREATE USER 'drop'@'localhost' identified by '123';`)\n-\tmustExec(c, se, `GRANT Select ON test.todrop TO  'drop'@'localhost';`)\n+\tmustExec(c, se, `CREATE USER 'drop'@'127.%';`)\n+\tmustExec(c, se, `GRANT Select ON test.todrop TO  'drop'@'127.%';`)\n \n-\tctx.GetSessionVars().User = \"drop@localhost\"\n-\tmustExec(c, se, `SELECT * FROM todrop;`)\n-\t_, err := se.Execute(\"DROP TABLE todrop;\")\n+\tse1 := newSession(c, s.store, s.dbName)\n+\tc.Assert(se1.Auth(\"drop@127.0.0.1\", nil, nil), IsTrue)\n+\tmustExec(c, se1, `SELECT * FROM todrop;`)\n+\t_, err := se1.Execute(\"DROP TABLE todrop;\")\n \tc.Assert(err, NotNil)\n \n-\tse = newSession(c, s.store, s.dbName)\n-\tctx.GetSessionVars().User = \"root@localhost\"\n-\tmustExec(c, se, `GRANT Drop ON test.todrop TO  'drop'@'localhost';`)\n+\tmustExec(c, se, `GRANT Drop ON test.todrop TO  'drop'@'127.%';`)\n \n-\tse = newSession(c, s.store, s.dbName)\n-\tctx.GetSessionVars().User = \"drop@localhost\"\n+\tse2 := newSession(c, s.store, s.dbName)\n+\tc.Assert(se2.Auth(\"drop@127.0.0.1\", nil, nil), IsTrue)\n \tmustExec(c, se, `DROP TABLE todrop;`)\n }\n \n",
+  "problem_statement": "executor: fix privilege check for drop table\n\n1. Doesn't need to check privilege here, `plan.Optimize` already check it.\r\n2. The check here doesn't support '10.%' pattern match.\r\n\r\n@shenli @zimulala",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "privilege/privileges/privileges_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}

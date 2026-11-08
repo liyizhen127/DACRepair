@@ -1,0 +1,27 @@
+{
+  "repo": "pingcap/tidb",
+  "instance_id": "pingcap__tidb-7858",
+  "base_commit": "ead685be0c472bb63079f48925835204482b3aca",
+  "patch": "diff --git a/executor/show.go b/executor/show.go\nindex 773e7e6d8e85b..0a76e27f683f7 100644\n--- a/executor/show.go\n+++ b/executor/show.go\n@@ -188,6 +188,14 @@ func (e *ShowExec) fetchShowProcessList() error {\n \t\treturn nil\n \t}\n \n+\tloginUser := e.ctx.GetSessionVars().User\n+\tvar hasProcessPriv bool\n+\tif pm := privilege.GetPrivilegeManager(e.ctx); pm != nil {\n+\t\tif pm.RequestVerification(\"\", \"\", \"\", mysql.ProcessPriv) {\n+\t\t\thasProcessPriv = true\n+\t\t}\n+\t}\n+\n \tpl := sm.ShowProcessList()\n \tfor _, pi := range pl {\n \t\tvar info string\n@@ -197,6 +205,12 @@ func (e *ShowExec) fetchShowProcessList() error {\n \t\t\tinfo = fmt.Sprintf(\"%.100v\", pi.Info)\n \t\t}\n \n+\t\t// If you have the PROCESS privilege, you can see all threads.\n+\t\t// Otherwise, you can see only your own threads.\n+\t\tif !hasProcessPriv && pi.User != loginUser.Username {\n+\t\t\tcontinue\n+\t\t}\n+\n \t\te.appendRow([]interface{}{\n \t\t\tpi.ID,\n \t\t\tpi.User,\ndiff --git a/infoschema/tables.go b/infoschema/tables.go\nindex 62691c334e1a0..e1cd952fc9c7e 100644\n--- a/infoschema/tables.go\n+++ b/infoschema/tables.go\n@@ -608,9 +608,23 @@ func dataForProcesslist(ctx sessionctx.Context) [][]types.Datum {\n \t\treturn nil\n \t}\n \n+\tloginUser := ctx.GetSessionVars().User\n+\tvar hasProcessPriv bool\n+\tif pm := privilege.GetPrivilegeManager(ctx); pm != nil {\n+\t\tif pm.RequestVerification(\"\", \"\", \"\", mysql.ProcessPriv) {\n+\t\t\thasProcessPriv = true\n+\t\t}\n+\t}\n+\n \tvar records [][]types.Datum\n \tpl := sm.ShowProcessList()\n \tfor _, pi := range pl {\n+\t\t// If you have the PROCESS privilege, you can see all threads.\n+\t\t// Otherwise, you can see only your own threads.\n+\t\tif !hasProcessPriv && pi.User != loginUser.Username {\n+\t\t\tcontinue\n+\t\t}\n+\n \t\tvar t uint64\n \t\tif len(pi.Info) != 0 {\n \t\t\tt = uint64(time.Since(pi.Time) / time.Second)\n",
+  "test_patch": "diff --git a/executor/executor_pkg_test.go b/executor/executor_pkg_test.go\nindex ef1a158fc0801..bd79e219420b0 100644\n--- a/executor/executor_pkg_test.go\n+++ b/executor/executor_pkg_test.go\n@@ -24,6 +24,7 @@ import (\n \t\"github.com/pingcap/tidb/sessionctx/stmtctx\"\n \t\"github.com/pingcap/tidb/types\"\n \t\"github.com/pingcap/tidb/util\"\n+\t\"github.com/pingcap/tidb/util/auth\"\n \t\"github.com/pingcap/tidb/util/chunk\"\n \t\"github.com/pingcap/tidb/util/mock\"\n \t\"github.com/pingcap/tidb/util/ranger\"\n@@ -78,6 +79,7 @@ func (s *testExecSuite) TestShowProcessList(c *C) {\n \t}\n \tsctx := mock.NewContext()\n \tsctx.SetSessionManager(sm)\n+\tsctx.GetSessionVars().User = &auth.UserIdentity{Username: \"test\"}\n \n \t// Compose executor.\n \te := &ShowExec{\n",
+  "problem_statement": "executor,infoschema: check privilege for 'show processlist'\n\n\"show processlist\" requires the PROCESS privilege.\r\nOtherwise, the user can see only his own threads.\r\n\r\n### What is changed and how it works?\r\n\r\nAdd check for PROCESS privilege.",
+  "environment_spec": {
+    "engine": "tidb",
+    "adapter_status": "pending",
+    "platform": "linux/amd64",
+    "toolchain": "acrepair-toolchain:pilot-amd64"
+  },
+  "evaluation_spec": {
+    "mode": "pending_adapter",
+    "test_origin": "upstream",
+    "protected_test_paths": [
+      "executor/executor_pkg_test.go"
+    ],
+    "required_check_ids": [],
+    "native_tests": [],
+    "test_status": "upstream_unexecuted"
+  },
+  "blockers": [
+    "TEST_COMMAND_AND_EXPECTATION_REVIEW_REQUIRED"
+  ]
+}
