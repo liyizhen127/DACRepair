@@ -20,7 +20,7 @@ import time
 
 from .core import Benchmark
 
-HEADERS = ["样本ID", "是否通过"]
+HEADERS = ["instance_id", "status"]
 NON_RETRYABLE = {"PASS", "FAIL"}  # Original statuses; ERROR can be explicitly retried.
 
 

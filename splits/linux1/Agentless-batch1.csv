@@ -1,4 +1,4 @@
-样本ID,是否通过
+instance_id,status
 MariaDB__server-4839,
 MariaDB__server-5840,
 MariaDB__server-commit-047eb2258dfc,

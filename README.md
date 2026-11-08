@@ -25,11 +25,11 @@ python3 -m benchmark.experiment run \
 ```
 
 - **选择 agent**：修改 `--agent`，格式为 `baseline.<agent>.<模块>:<函数>`。
-- **选择设备和批次**：修改 `--results`，例如 `splits/linux1/Agentless-batch2.csv`。CSV 中的样本 ID 就是本次任务清单。
+- **选择设备和批次**：修改 `--results`，例如 `splits/linux1/Agentless-batch2.csv`。CSV 两列为 `instance_id` 和 `status`，其中 `instance_id` 就是本次任务清单。
 - **标识实验**：在 `--run-id` 中体现模型等实验信息，同一组实验的三台设备使用相同标识。实际模型和 API Key 在 agent 侧配置。
 - **设置运行资源**：`--jobs` 为编译并行数，`--cpus` 和 `--memory` 为运行容器的 CPU、内存限额。
 
-切换基线或模型实验时，另建结果 CSV，保留所需样本 ID，将“是否通过”列留空，不复用旧的 `.state.json`。
+切换基线或模型实验时，另建结果 CSV，保留所需样本 ID，将 `status` 列留空，不复用旧的 `.state.json`。
 
 ## 3. 结果与续跑
 

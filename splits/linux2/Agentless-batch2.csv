@@ -1,4 +1,4 @@
-样本ID,是否通过
+instance_id,status
 ClickHouse__ClickHouse-117979,
 ClickHouse__ClickHouse-92372,
 FirebirdSQL__firebird-commit-8ed234af3f8e,

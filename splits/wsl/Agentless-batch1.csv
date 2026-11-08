@@ -1,4 +1,4 @@
-样本ID,是否通过
+instance_id,status
 MonetDB__MonetDB-commit-2d6609a769c1,
 mysql__mysql-server-commit-1fbb61754b1f,
 mysql__mysql-server-commit-9e1f1e4f12c4,

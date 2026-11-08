@@ -1,4 +1,4 @@
-样本ID,是否通过
+instance_id,status
 FirebirdSQL__firebird-commit-5e015278446c,
 MariaDB__server-commit-a777a8a6a3c7,
 StarRocks__starrocks-56316,
